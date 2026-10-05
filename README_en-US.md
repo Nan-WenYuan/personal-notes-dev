@@ -1,4 +1,4 @@
-# Notes · Personal Development Edition
+# Floral Notepaper · Personal Development Edition
 
 This independently maintained edition is based on [Floral Notepaper](https://github.com/Achilng/floral-notepaper), originally authored by **Achilng**, and is intended for personal local use and customization.
 

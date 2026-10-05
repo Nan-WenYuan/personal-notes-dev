@@ -6,10 +6,12 @@
     "github": "GitHub",
     "license": "License",
     "productName": "花笺",
-    "summary": "A lightweight, elegant, modern local note-taking tool",
+    "summary": "For personal notes and knowledge management, with local Markdown, separate note windows, and a portable folder.",
     "tipPrefix": "Tip:",
     "title": "About",
-    "version": "Version: v{{version}}"
+    "version": "Version: v{{version}}",
+    "edition": "Personal Development Edition",
+    "attribution": "Based on Floral Notepaper by Achilng, under the MIT License."
   },
   "common": {
     "back": "Back",

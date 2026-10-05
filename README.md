@@ -1,4 +1,4 @@
-# 自用笔记软件开发
+# 花笺 · 自用开发版本
 
 本项目参考并基于 [花笺 Floral Notepaper](https://github.com/Achilng/floral-notepaper) 进行二次开发，用于个人本地使用和功能调整。
 

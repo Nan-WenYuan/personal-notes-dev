@@ -17,9 +17,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("../generated/contributors.json", () => ({
   default: [
     {
-      login: "TestUser",
-      avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
-      html_url: "https://github.com/TestUser",
+      login: "Nan-WenYuan",
+      avatar_url: "https://github.com/Nan-WenYuan.png",
+      html_url: "https://github.com/Nan-WenYuan",
     },
   ],
 }));
@@ -30,7 +30,7 @@ describe("AboutPanel", () => {
 
     expect(markup).toContain("关于");
     expect(markup).toContain("花笺");
-    expect(markup).toContain("轻量、优雅、现代化的本地便签工具");
+    expect(markup).toContain("自用开发版本");
     expect(markup).toContain("更新");
     // Update status has not hydrated yet: the update section shows a loading
     // placeholder instead of full update controls (avoids MSIX controls flash).
@@ -46,6 +46,6 @@ describe("AboutPanel", () => {
     expect(markup).toContain("反馈问题");
     expect(markup).toContain("许可证");
     expect(markup).toContain("贡献者");
-    expect(markup).toContain("TestUser");
+    expect(markup).toContain("Nan-WenYuan");
   });
 });

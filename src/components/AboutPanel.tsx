@@ -85,13 +85,19 @@ export function AboutPanel({ onClose }: AboutPanelProps) {
           <h3 className="text-[20px] font-serif font-medium text-ink-soft">
             {t("about.productName", { defaultValue: "花笺" })}
           </h3>
-          <p className="text-[11px] text-ink-ghost font-body">
-            {t("about.summary", { defaultValue: "轻量、优雅、现代化的本地便签工具" })}
+          <p className="text-[12px] text-bamboo font-body">
+            {t("about.edition", { defaultValue: "自用开发版本" })}
+          </p>
+          <p className="text-[11px] text-ink-ghost font-body leading-relaxed">
+            {t("about.summary", {
+              defaultValue:
+                "用于个人笔记与知识库管理，支持本地 Markdown、独立便签和整目录便携使用。",
+            })}
           </p>
           <p className="text-[11px] text-ink-ghost font-body">
-            Copyright © 2026 Floral Notepaper Contributors,
-            <br />
-            Licensed under the MIT License. <br />
+            {t("about.attribution", {
+              defaultValue: "基于 Floral Notepaper 二次开发，原作者 Achilng，遵循 MIT 许可。",
+            })}
           </p>
           {version && (
             <p className="text-[11px] text-ink-ghost font-mono">
@@ -106,7 +112,7 @@ export function AboutPanel({ onClose }: AboutPanelProps) {
           <section className="space-y-1 py-2 border-y border-paper-deep/25">
             <button
               type="button"
-              onClick={() => void openUrl("https://github.com/Achilng/floral-notepaper")}
+              onClick={() => void openUrl("https://github.com/Nan-WenYuan/personal-notes-dev")}
               className="w-full h-8 px-1 flex items-center justify-between text-[11px] text-ink-faint hover:text-bamboo cursor-pointer transition-colors"
             >
               <span className="inline-flex items-center gap-1.5">
@@ -140,7 +146,9 @@ export function AboutPanel({ onClose }: AboutPanelProps) {
             </button>
             <button
               type="button"
-              onClick={() => void openUrl("https://github.com/Achilng/floral-notepaper/issues")}
+              onClick={() =>
+                void openUrl("https://github.com/Nan-WenYuan/personal-notes-dev/issues")
+              }
               className="w-full h-8 px-1 flex items-center justify-between text-[11px] text-ink-faint hover:text-bamboo cursor-pointer transition-colors"
             >
               <span className="inline-flex items-center gap-1.5">
@@ -175,7 +183,7 @@ export function AboutPanel({ onClose }: AboutPanelProps) {
             <button
               type="button"
               onClick={() =>
-                void openUrl("https://github.com/Achilng/floral-notepaper/blob/main/LICENSE")
+                void openUrl("https://github.com/Nan-WenYuan/personal-notes-dev/blob/main/LICENSE")
               }
               className="w-full h-8 px-1 flex items-center justify-between text-[11px] text-ink-faint hover:text-bamboo cursor-pointer transition-colors"
             >

@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([Parameter(Mandatory)][string]$Executable, [string]$Target = 'main')
+param([Parameter(Mandatory)][string]$Executable, [string]$Target = 'main', [string]$ReleaseNotes = '自用开发版本：配置和笔记保存在 EXE 同级；从本仓库下载更新，只替换程序，保留用户数据。')
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $repository = 'Nan-WenYuan/personal-notes-dev'
@@ -16,7 +16,7 @@ $manifest = @{
     schemaVersion=1; appId='com.floral-notepaper.app'; productName='花笺'; channel='stable'
     version=$version; tag=$tag; publishedAt=[DateTimeOffset]::UtcNow.ToString('o')
     mandatory=$false; allowDowngrade=$false
-    releaseNotes='自用便携版：配置和笔记保存在 EXE 同级；从本仓库下载更新，只替换程序，保留用户数据。'
+    releaseNotes=$ReleaseNotes
     assets=@(@{ os='windows'; arch='x86_64'; kind='portable_exe'; name=$assetName; sha256=$hash; size=$binary.Length
         githubUrl="https://github.com/$repository/releases/download/$tag/$assetName" })
 }
@@ -31,7 +31,7 @@ if (-not $token) { throw 'GitHub authentication unavailable' }
 $headers = @{ Authorization="Bearer $token"; Accept='application/vnd.github+json'; 'X-GitHub-Api-Version'='2022-11-28' }
 try {
     $body = @{ tag_name=$tag; target_commitish=$Target; name="花笺 $version 自用便携版"; draft=$true; prerelease=$false
-        body="自用笔记软件开发。Windows x64 便携 EXE，无安装包、无压缩包。首次使用请将 EXE 重命名为花笺.exe，所需许可文本位于源码 LICENSE 与 src/assets/fonts。旧版首次切换只替换 EXE，保留配置和数据目录。1.4.0 起支持本仓库应用内更新。SHA256: $hash" } | ConvertTo-Json
+        body="$ReleaseNotes`n`n自用笔记软件开发。Windows x64 便携 EXE，无安装包、无压缩包。首次使用请将 EXE 重命名为花笺.exe，所需许可文本位于源码 LICENSE 与 src/assets/fonts。旧版首次切换只替换 EXE，保留配置和数据目录。1.4.0 起支持本仓库应用内更新。SHA256: $hash" } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repository/releases" -Headers $headers -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json'
     $uploadBase = $release.upload_url -replace '\{.*$', ''
     foreach ($asset in @(@{path=$binary.FullName;name=$assetName},@{path=$manifestPath;name='update-manifest.json'})) {

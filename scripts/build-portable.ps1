@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([ValidateSet('RC', 'R')][string]$Type = 'RC')
+param([ValidateSet('RC', 'R')][string]$Type = 'RC', [switch]$BuildOnly)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -20,6 +20,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Release build failed: $LASTEXITCODE" }
     $binary = Join-Path $repoRoot 'src-tauri/target/release/floral-notepaper.exe'
     if (-not (Test-Path -LiteralPath $binary)) { throw "Executable missing: $binary" }
+    if ($BuildOnly) { Write-Output "BUILT_EXECUTABLE=$binary"; return }
     $timestamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time').ToString('yyMMdd_HHmmss')
     $outputDir = Join-Path $repoRoot "交付/花笺"
     $outputExe = Join-Path $outputDir "花笺.exe"

@@ -6,10 +6,12 @@
     "github": "GitHub",
     "license": "许可证",
     "productName": "花笺",
-    "summary": "轻量、优雅、现代化的本地便签工具",
+    "summary": "用于个人笔记与知识库管理，支持本地 Markdown、独立便签和整目录便携使用。",
     "tipPrefix": "您知道吗：",
     "title": "关于",
-    "version": "版本：v{{version}}"
+    "version": "版本：v{{version}}",
+    "edition": "自用开发版本",
+    "attribution": "基于 Floral Notepaper 二次开发，原作者 Achilng，遵循 MIT 许可。"
   },
   "common": {
     "back": "返回",

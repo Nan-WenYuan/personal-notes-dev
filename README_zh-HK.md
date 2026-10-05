@@ -1,4 +1,4 @@
-# 花箋 · 二次開發自用版
+# 花箋 · 自用開發版本
 
 本項目參考並基於 [花箋 Floral Notepaper](https://github.com/Achilng/floral-notepaper) 進行二次開發，原作者為 **Achilng**。此版本獨立維護，用於個人本地使用及功能調整。
 

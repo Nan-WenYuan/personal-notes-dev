@@ -6,10 +6,12 @@
     "github": "GitHub",
     "license": "許可證",
     "productName": "花箋",
-    "summary": "輕量、優雅、現代化的本地便箋工具",
+    "summary": "用於個人筆記與知識庫管理，支援本地 Markdown、獨立便箋和整個資料夾便攜使用。",
     "tipPrefix": "您知道嗎：",
     "title": "關於",
-    "version": "版本：v{{version}}"
+    "version": "版本：v{{version}}",
+    "edition": "自用開發版本",
+    "attribution": "基於 Floral Notepaper 二次開發，原作者 Achilng，遵循 MIT 許可。"
   },
   "common": {
     "back": "返回",

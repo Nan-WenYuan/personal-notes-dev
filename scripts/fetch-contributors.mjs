@@ -10,7 +10,7 @@ function writeContributors(contributors) {
   writeFileSync(OUTPUT, JSON.stringify(contributors, null, 2) + "\n");
 }
 
-const REPO = "Achilng/floral-notepaper";
+const REPO = "Nan-WenYuan/personal-notes-dev";
 const API_URL = `https://api.github.com/repos/${REPO}/contributors?per_page=100`;
 
 async function fetchContributors() {
@@ -40,13 +40,15 @@ try {
   writeContributors(contributors);
   console.log(`[contributors] wrote ${contributors.length} contributors`);
 } catch (err) {
-  if (existsSync(OUTPUT)) {
-    const cached = JSON.parse(readFileSync(OUTPUT, "utf-8"));
-    console.warn(
-      `[contributors] API failed (${err.message}), keeping cached ${cached.length} contributors`,
-    );
-  } else {
-    writeContributors([]);
-    console.warn(`[contributors] API failed (${err.message}), wrote empty fallback`);
-  }
+  // Never reuse a cache from the upstream project after changing repository.
+  writeContributors([
+    {
+      login: "Nan-WenYuan",
+      avatar_url: "https://github.com/Nan-WenYuan.png",
+      html_url: "https://github.com/Nan-WenYuan",
+    },
+  ]);
+  console.warn(
+    `[contributors] ${REPO} unavailable (${err.message}), using repository owner fallback`,
+  );
 }
