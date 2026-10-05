@@ -1347,7 +1347,7 @@ impl NoteStore {
     fn file_name_for(&self, id: &str, title: &str) -> String {
         let safe_title = safe_file_stem(title);
         if safe_title.is_empty() {
-            format!("{id}.md")
+            format!("{id}_无标题笔记.md")
         } else {
             format!("{id}_{safe_title}.md")
         }
@@ -1363,7 +1363,7 @@ impl NoteStore {
         }
 
         match serde_json::from_str(&fs::read_to_string(&path)?) {
-            Ok(metadata) => Ok(metadata),
+            Ok(metadata) => self.normalize_untitled_file_names(metadata),
             Err(_) => {
                 // 备份损坏文件再重建：rebuild 从文件系统推断 created_at / 分类，
                 // 与原始数据可能不一致，保留原件供事后取证分析
@@ -1387,6 +1387,49 @@ impl NoteStore {
     fn save_metadata(&self, metadata: &MetadataFile) -> Result<(), AppError> {
         self.ensure_data_dir()?;
         write_json_atomic(&self.metadata_path(), metadata)
+    }
+
+    fn normalize_untitled_file_names(
+        &self,
+        mut metadata: MetadataFile,
+    ) -> Result<MetadataFile, AppError> {
+        let mut renamed = Vec::new();
+        let mut changed = false;
+        let result = (|| -> Result<(), AppError> {
+            for note in &mut metadata.notes {
+                if !note.title.trim().is_empty() || note.file_name != format!("{}.md", note.id) {
+                    continue;
+                }
+                let new_name = self.file_name_for(&note.id, "");
+                let old_path = self.note_path_in_category(&note.file_name, &note.category);
+                let new_path = self.note_path_in_category(&new_name, &note.category);
+                if old_path.exists() {
+                    if new_path.exists() {
+                        continue;
+                    }
+                    fs::rename(&old_path, &new_path)?;
+                    renamed.push((old_path, new_path));
+                } else if !new_path.exists() {
+                    continue;
+                }
+                // Also recover an interrupted rename where the file moved before the index was saved.
+                note.file_name = new_name;
+                changed = true;
+            }
+            if changed {
+                self.save_metadata(&metadata)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            for (old_path, new_path) in renamed.into_iter().rev() {
+                if let Err(rollback_error) = fs::rename(&new_path, &old_path) {
+                    eprintln!("failed to restore untitled note filename: {rollback_error}");
+                }
+            }
+            return Err(error);
+        }
+        Ok(metadata)
     }
 
     fn notes_dir_has_md_files(&self) -> bool {
@@ -1781,6 +1824,39 @@ fn default_locale() -> String {
 mod tests {
     use super::*;
     use std::{fs, path::PathBuf};
+
+    #[test]
+    fn untitled_names_include_label_and_legacy_names_preserve_content() {
+        let root = test_root("无标题 文件名");
+        let store = NoteStore::new(root.join("配置"), root.join("数据"));
+        write_json_atomic(&store.config_path(), &store.default_config()).unwrap();
+        store.create_category("学习").unwrap();
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: String::new(),
+                content: "原始笔记正文".into(),
+                category: "学习".into(),
+            })
+            .unwrap();
+        assert_eq!(note.file_name, format!("{}_无标题笔记.md", note.id));
+        let new_path = store.note_path_in_category(&note.file_name, "学习");
+        let old_name = format!("{}.md", note.id);
+        let old_path = store.note_path_in_category(&old_name, "学习");
+        fs::rename(&new_path, &old_path).unwrap();
+        let mut metadata = store.load_metadata().unwrap();
+        metadata.notes[0].file_name = old_name.clone();
+        store.save_metadata(&metadata).unwrap();
+        let migrated = store.read_note(&note.id).unwrap();
+        assert_eq!(migrated.content, "原始笔记正文");
+        assert_eq!(migrated.file_name, note.file_name);
+        assert!(new_path.exists());
+        assert!(!old_path.exists());
+        // Recover the interrupted rename without moving or rewriting the file again.
+        metadata.notes[0].file_name = old_name;
+        store.save_metadata(&metadata).unwrap();
+        assert_eq!(store.read_note(&note.id).unwrap().content, "原始笔记正文");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn supports_chinese_and_spaced_paths_for_notes_and_images() {
