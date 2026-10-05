@@ -726,6 +726,7 @@ impl NoteStore {
             let config = self.default_config();
             self.save_config(config.clone())?;
             self.mark_macos_shortcut_migration_handled()?;
+            fs::write(self.config_dir.join(".wysiwyg-default-v1"), b"1")?;
             return Ok(config);
         }
 
@@ -740,6 +741,12 @@ impl NoteStore {
                 Path::new(old_data_dir),
                 &self.data_dir,
             );
+        }
+        let editor_marker = self.config_dir.join(".wysiwyg-default-v1");
+        if !editor_marker.exists() {
+            config.default_view_mode = "wysiwyg".into();
+            write_json_atomic(&path, &config)?;
+            fs::write(&editor_marker, b"1")?;
         }
         config.data_dir = Some(self.data_dir.to_string_lossy().to_string());
         config.tab_indent_size = config.tab_indent_size.clamp(1, 8);
@@ -1160,7 +1167,7 @@ impl NoteStore {
             global_shortcut: "Ctrl+Space".into(),
             close_to_tray: true,
             autostart: false,
-            default_view_mode: "split".into(),
+            default_view_mode: "wysiwyg".into(),
             note_auto_save: true,
             note_surface_auto_save: true,
             tile_color: default_tile_color(),
@@ -2002,6 +2009,22 @@ mod tests {
                     .starts_with("metadata.corrupt-")
             });
         assert!(corrupt_backup, "corrupt metadata should be backed up");
+    }
+
+    #[test]
+    fn upgrades_editor_default_once_and_preserves_later_choice() {
+        let store = test_store("editor-default");
+        fs::create_dir_all(&store.config_dir).unwrap();
+        let mut legacy = store.default_config();
+        legacy.default_view_mode = "split".into();
+        write_json_atomic(&store.config_path(), &legacy).unwrap();
+        let upgraded = store.load_config().unwrap();
+        assert_eq!(upgraded.default_view_mode, "wysiwyg");
+        assert_eq!(upgraded.global_shortcut, legacy.global_shortcut);
+        let mut chosen = upgraded;
+        chosen.default_view_mode = "split".into();
+        store.save_config(chosen).unwrap();
+        assert_eq!(store.load_config().unwrap().default_view_mode, "split");
     }
 
     #[test]

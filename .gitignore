@@ -71,3 +71,6 @@ Docs/windows-install-chain-code-review.md
 
 # Task temporary files
 Docs/临时/
+
+# Generated offline editor resources
+public/editor/

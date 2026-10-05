@@ -1,0 +1,40 @@
+.rich-editor {
+  --border-color: var(--color-paper-deep);
+  --panel-background-color: var(--color-cloud);
+  --toolbar-background-color: var(--color-cloud);
+  --textarea-background-color: var(--color-cloud);
+  --textarea-text-color: var(--color-ink-soft);
+  --toolbar-icon-color: var(--color-ink-ghost);
+  --toolbar-icon-hover-color: var(--color-bamboo);
+}
+.rich-editor .vditor {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.rich-editor .vditor-toolbar {
+  padding: 5px 12px !important;
+  border-bottom: 1px solid var(--color-paper-deep);
+  flex-wrap: wrap;
+}
+.rich-editor .vditor-wysiwyg {
+  background: transparent;
+}
+.rich-editor .vditor-reset {
+  padding: 16px 24px !important;
+  font-size: inherit !important;
+  color: var(--color-ink-soft);
+  font-family: inherit;
+  line-height: 1.9;
+}
+.rich-editor .vditor-reset img {
+  max-width: 100%;
+  height: auto;
+}
+.rich-editor .vditor-reset pre {
+  background: var(--color-paper-warm);
+}
+.rich-editor .vditor-reset table td,
+.rich-editor .vditor-reset table th {
+  border-color: var(--color-paper-deep);
+}

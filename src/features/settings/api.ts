@@ -44,9 +44,5 @@ export async function chooseBackgroundImage(): Promise<string | null> {
 }
 
 export function normalizeViewMode(value: string): ViewMode {
-  if (value === "edit" || value === "split" || value === "preview") {
-    return value;
-  }
-
-  return "split";
+  return value === "split" ? "split" : "wysiwyg";
 }

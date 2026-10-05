@@ -1,5 +1,11 @@
 # Third-Party Notices
 
+## Vditor and Lute
+
+The WYSIWYG editor uses Vditor (Copyright 2019-present B3log) and its bundled Lute Markdown engine. Both are MIT licensed. Vditor's full MIT license is included in the application's embedded offline editor resources at `editor/dist/LICENSE`.
+
+Source: https://github.com/Vanessa219/vditor and https://github.com/88250/lute.
+
 ## HarmonyOS Sans SC
 
 Floral Notepaper embeds the unmodified `HarmonyOS_Sans_SC.ttf` font from the OpenHarmony `global_system_resources` repository.

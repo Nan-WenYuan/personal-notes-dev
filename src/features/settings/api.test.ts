@@ -110,11 +110,12 @@ describe("settings api", () => {
     });
   });
 
-  test("normalizes supported view modes and falls back to split", () => {
-    expect(normalizeViewMode("edit")).toBe("edit");
+  test("normalizes supported view modes and falls back to wysiwyg", () => {
+    expect(normalizeViewMode("edit")).toBe("wysiwyg");
     expect(normalizeViewMode("split")).toBe("split");
-    expect(normalizeViewMode("preview")).toBe("preview");
-    expect(normalizeViewMode("unknown")).toBe("split");
+    expect(normalizeViewMode("preview")).toBe("wysiwyg");
+    expect(normalizeViewMode("wysiwyg")).toBe("wysiwyg");
+    expect(normalizeViewMode("unknown")).toBe("wysiwyg");
   });
 
   test("chooses a data directory through the folder picker", async () => {

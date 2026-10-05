@@ -213,10 +213,11 @@
     "closeTitle": "Close Settings",
     "closeToTray": "Close to Tray",
     "defaultView": {
-      "edit": "Edit",
+      "edit": "Source",
       "label": "Default view",
       "preview": "Preview",
-      "split": "Split"
+      "split": "Split",
+      "wysiwyg": "Edit"
     },
     "fontSize": {
       "editor": "Editor font size",

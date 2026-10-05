@@ -213,10 +213,11 @@
     "closeTitle": "關閉設定",
     "closeToTray": "關閉至系統匣",
     "defaultView": {
-      "edit": "編輯",
+      "edit": "原始碼",
       "label": "預設檢視",
       "preview": "預覽",
-      "split": "分欄"
+      "split": "分欄",
+      "wysiwyg": "編輯"
     },
     "fontSize": {
       "editor": "編輯器字級",

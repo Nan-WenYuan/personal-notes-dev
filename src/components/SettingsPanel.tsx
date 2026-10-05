@@ -62,12 +62,8 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
   );
   const viewModes = useMemo<Array<{ value: ViewMode; label: string }>>(
     () => [
-      { value: "edit", label: t("settings.defaultView.edit", { defaultValue: "编辑" }) },
+      { value: "wysiwyg", label: t("settings.defaultView.wysiwyg", { defaultValue: "编辑" }) },
       { value: "split", label: t("settings.defaultView.split", { defaultValue: "分栏" }) },
-      {
-        value: "preview",
-        label: t("settings.defaultView.preview", { defaultValue: "预览" }),
-      },
     ],
     [t],
   );

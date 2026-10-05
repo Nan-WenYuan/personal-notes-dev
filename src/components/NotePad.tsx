@@ -1,9 +1,9 @@
+import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { createNote, getErrorMessage, getNote, listNotes, updateNote } from "../features/notes/api";
-import { useImagePaste } from "../features/images/useImagePaste";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
 import { reportInstallPreparation } from "../features/update/api";
 import type { UpdateInstallPrepareRequest } from "../features/update/types";
@@ -93,7 +93,11 @@ const surfaceResizeHandles: Array<{
 function isTileControlDoubleClickTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
-    Boolean(target.closest('button,input,textarea,select,a,[data-surface-resize-handle="true"]'))
+    Boolean(
+      target.closest(
+        'button,input,textarea,select,a,[contenteditable="true"],[data-surface-resize-handle="true"]',
+      ),
+    )
   );
 }
 
@@ -127,6 +131,8 @@ export function NotePad({
 }: NotePadProps) {
   const { t } = useTranslation();
   const [surfaceMode, setSurfaceMode] = useState<NoteSurfaceMode>(initialSurfaceMode);
+  const richEditorRef = useRef<RichEditorHandle>(null);
+  const richMode = true;
   const [mode, setMode] = useState<OpenMode>("new");
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -252,7 +258,7 @@ export function NotePad({
         if (!cancelled) {
           hasEnteredOnce.current = true;
           void showCurrentWindow()
-            .then(() => contentRef.current?.focus())
+            .then(() => (richMode ? richEditorRef.current : contentRef.current)?.focus())
             .catch(() => undefined);
         }
       });
@@ -325,7 +331,7 @@ export function NotePad({
       setSurfaceMode("pad");
       void refreshNotes().catch(() => undefined);
       void showCurrentWindow()
-        .then(() => contentRef.current?.focus())
+        .then(() => (richMode ? richEditorRef.current : contentRef.current)?.focus())
         .catch(() => undefined);
     });
     return () => {
@@ -413,20 +419,6 @@ export function NotePad({
       return null;
     }
   }, [editingNoteId, saveNote]);
-
-  const {
-    handlePaste: imagePasteHandler,
-    handleDrop: imageDropHandler,
-    handleDragOver: imageDragOverHandler,
-  } = useImagePaste({
-    noteId: editingNoteId,
-    textareaRef: contentRef,
-    setContent,
-    markDirty: () => setStatus("dirty"),
-    onEnsureNoteSaved: ensureNoteSaved,
-    onError: showToast,
-    t,
-  });
 
   const tileNoteId = editingNoteId ?? initialNoteId ?? "";
 
@@ -686,7 +678,7 @@ export function NotePad({
 
   const handleDrag = (event: MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
-    if (target.closest("button,input,textarea")) return;
+    if (target.closest("button,input,textarea,[contenteditable]")) return;
 
     if (surfaceMode === "tile" && tileDoubleClickToEdit) {
       if (event.button !== 0 || event.detail > 1) return;
@@ -851,7 +843,7 @@ export function NotePad({
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === "ArrowDown") {
                       event.preventDefault();
-                      contentRef.current?.focus();
+                      (richMode ? richEditorRef.current : contentRef.current)?.focus();
                     }
                   }}
                   placeholder={t("notepad.placeholder.title", { defaultValue: "标题（可选）" })}
@@ -859,32 +851,17 @@ export function NotePad({
                   style={{ fontSize: `${surfaceFontSize}px` }}
                 />
 
-                <textarea
-                  ref={contentRef}
-                  data-tab-indent="true"
-                  value={content}
-                  onChange={(event) => {
-                    setContent(event.target.value);
+                <RichEditor
+                  editorRef={richEditorRef}
+                  content={content}
+                  onChange={(value) => {
+                    setContent(value);
                     setStatus("dirty");
                   }}
-                  onPaste={imagePasteHandler}
-                  onDrop={imageDropHandler}
-                  onDragOver={imageDragOverHandler}
-                  onKeyDown={(event) => {
-                    if (event.key === "ArrowUp") {
-                      const ta = contentRef.current;
-                      if (ta && ta.selectionStart === ta.selectionEnd) {
-                        const textBeforeCursor = content.slice(0, ta.selectionStart);
-                        if (!textBeforeCursor.includes("\n")) {
-                          event.preventDefault();
-                          titleRef.current?.focus();
-                        }
-                      }
-                    }
-                  }}
-                  placeholder={t("notepad.placeholder.content", { defaultValue: "写点什么……" })}
-                  className="w-full flex-1 min-h-0 pb-2 leading-relaxed text-ink-soft font-body placeholder:text-ink-ghost/50"
-                  style={{ fontSize: `${surfaceFontSize}px`, tabSize: `var(--tab-indent-size, 2)` }}
+                  onEnsureNoteSaved={ensureNoteSaved}
+                  imageBaseDir={imageBaseDir ?? undefined}
+                  fontSize={surfaceFontSize}
+                  onError={showToast}
                 />
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-paper-deep/30 shrink-0">

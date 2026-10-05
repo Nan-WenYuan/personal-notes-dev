@@ -1,4 +1,4 @@
-export type ViewMode = "edit" | "split" | "preview";
+export type ViewMode = "wysiwyg" | "edit" | "split" | "preview";
 
 export type ThemeOption = "light" | "dark" | "system";
 

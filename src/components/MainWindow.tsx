@@ -1,3 +1,4 @@
+import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
 import {
   useCallback,
   useDeferredValue,
@@ -352,7 +353,7 @@ export function MainWindow({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(
-    normalizeViewMode(initialConfig?.defaultViewMode ?? "split"),
+    normalizeViewMode(initialConfig?.defaultViewMode ?? "wysiwyg"),
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [content, setContent] = useState("");
@@ -406,6 +407,7 @@ export function MainWindow({
   );
   const { popupRef: categoryMenuRef, popupPosition: categoryMenuPosition } =
     useViewportPopupPosition(categoryMenu, categoryMenuConfirmDelete);
+  const richEditorRef = useRef<RichEditorHandle>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const windowLabelRef = useRef("main");
   const previewScrollRef = useRef<HTMLDivElement>(null);
@@ -549,16 +551,12 @@ export function MainWindow({
   const viewModeOptions = useMemo(
     () => [
       {
-        value: "edit" as ViewMode,
-        label: t("settings.defaultView.edit", { defaultValue: "编辑" }),
+        value: "wysiwyg" as ViewMode,
+        label: t("settings.defaultView.wysiwyg", { defaultValue: "编辑" }),
       },
       {
         value: "split" as ViewMode,
         label: t("settings.defaultView.split", { defaultValue: "分栏" }),
-      },
-      {
-        value: "preview" as ViewMode,
-        label: t("settings.defaultView.preview", { defaultValue: "预览" }),
       },
     ],
     [t],
@@ -976,11 +974,12 @@ export function MainWindow({
         const noteId = selectedIdRef.current;
         void (async () => {
           const textarea = contentRef.current;
-          if (!textarea) return;
+          if (!textarea && !richEditorRef.current) return;
           try {
             const rels = await Promise.all(imagePaths.map((p) => saveImageFromPath(noteId, p)));
             const markdown = rels.map((rel) => `![](${rel})`).join("\n");
-            insertTextAtCursor(textarea, setContent, markdown);
+            if (richEditorRef.current) richEditorRef.current.insertMarkdown(markdown);
+            else if (textarea) insertTextAtCursor(textarea, setContent, markdown);
             saveStateRef.current = "dirty";
             setSaveState("dirty");
           } catch (error) {
@@ -1653,6 +1652,10 @@ export function MainWindow({
 
   const handleUndo = () => {
     if (!selectedId) return;
+    if (richEditorRef.current) {
+      richEditorRef.current.undo();
+      return;
+    }
     const textarea = contentRef.current;
     if (runEditorCommand(textarea, "undo")) {
       setContent(textarea?.value ?? content);
@@ -1662,6 +1665,10 @@ export function MainWindow({
 
   const handleRedo = () => {
     if (!selectedId) return;
+    if (richEditorRef.current) {
+      richEditorRef.current.redo();
+      return;
+    }
     const textarea = contentRef.current;
     if (runEditorCommand(textarea, "redo")) {
       setContent(textarea?.value ?? content);
@@ -2889,7 +2896,8 @@ export function MainWindow({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    contentRef.current?.focus();
+                    if (richEditorRef.current) richEditorRef.current.focus();
+                    else contentRef.current?.focus();
                   }
                 }}
                 placeholder={t("common.untitledNote", { defaultValue: "无标题笔记" })}
@@ -2938,6 +2946,22 @@ export function MainWindow({
                 </div>
               ) : (
                 <>
+                  {viewMode === "wysiwyg" && (
+                    <RichEditor
+                      key={selectedId ?? "empty"}
+                      editorRef={richEditorRef}
+                      content={content}
+                      onChange={(value) => {
+                        setContent(value);
+                        markDirty();
+                      }}
+                      onEnsureNoteSaved={ensureNoteSaved}
+                      imageBaseDir={imageBaseDir ?? undefined}
+                      disabled={!selectedId}
+                      fontSize={settingsConfig?.fontSize ?? 14}
+                      onError={showToast}
+                    />
+                  )}
                   {(viewMode === "edit" || viewMode === "split") && (
                     <div
                       className="flex flex-col min-h-0 shrink-0"
