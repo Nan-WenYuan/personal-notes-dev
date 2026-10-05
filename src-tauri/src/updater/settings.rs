@@ -35,8 +35,8 @@ impl StoredUpdateSettings {
             auto_check: settings.auto_check,
             auto_download: settings.auto_download,
             check_interval_hours: normalize_check_interval(settings.check_interval_hours),
-            check_source_preference: settings.check_source_preference,
-            download_source_preference: settings.download_source_preference,
+            check_source_preference: CheckSourcePreference::GithubFirst,
+            download_source_preference: DownloadSourcePreference::GithubFirst,
             channel: settings.channel,
             allow_prerelease: settings.allow_prerelease,
             last_auto_check_at: settings.last_auto_check_at,
@@ -78,8 +78,8 @@ impl Default for StoredUpdateSettings {
             auto_check: true,
             auto_download: false,
             check_interval_hours: 24,
-            check_source_preference: CheckSourcePreference::MirrorChyanFirst,
-            download_source_preference: DownloadSourcePreference::MirrorChyanFirst,
+            check_source_preference: CheckSourcePreference::GithubFirst,
+            download_source_preference: DownloadSourcePreference::GithubFirst,
             channel: UpdateChannel::Stable,
             allow_prerelease: false,
             last_auto_check_at: None,
@@ -97,6 +97,8 @@ pub fn load(paths: &UpdatePaths) -> Result<StoredUpdateSettings, AppError> {
 
     match serde_json::from_str::<StoredUpdateSettings>(&fs::read_to_string(&path)?) {
         Ok(mut settings) => {
+            settings.check_source_preference = CheckSourcePreference::GithubFirst;
+            settings.download_source_preference = DownloadSourcePreference::GithubFirst;
             settings.check_interval_hours = normalize_check_interval(settings.check_interval_hours);
             Ok(settings)
         }
@@ -165,11 +167,11 @@ mod tests {
         assert_eq!(settings.check_interval_hours, 24);
         assert_eq!(
             settings.check_source_preference,
-            CheckSourcePreference::MirrorChyanFirst
+            CheckSourcePreference::GithubFirst
         );
         assert_eq!(
             settings.download_source_preference,
-            DownloadSourcePreference::MirrorChyanFirst
+            DownloadSourcePreference::GithubFirst
         );
         assert!(paths.settings_path().exists());
     }
@@ -181,7 +183,7 @@ mod tests {
             auto_check: false,
             auto_download: true,
             check_interval_hours: 168,
-            check_source_preference: CheckSourcePreference::MirrorChyanFirst,
+            check_source_preference: CheckSourcePreference::GithubFirst,
             download_source_preference: DownloadSourcePreference::GithubFirst,
             channel: UpdateChannel::Beta,
             allow_prerelease: true,
@@ -210,7 +212,7 @@ mod tests {
                 auto_check: false,
                 auto_download: true,
                 check_interval_hours: 168,
-                check_source_preference: CheckSourcePreference::MirrorChyanFirst,
+                check_source_preference: CheckSourcePreference::GithubFirst,
                 download_source_preference: DownloadSourcePreference::GithubFirst,
                 channel: UpdateChannel::Beta,
                 allow_prerelease: true,

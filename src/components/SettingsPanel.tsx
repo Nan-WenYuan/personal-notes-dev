@@ -141,13 +141,15 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
               readOnly
               className="min-w-0 flex-1 h-8 px-2.5 rounded-lg bg-paper-warm/70 border border-paper-deep/40 text-[11px] font-mono text-ink-faint truncate"
             />
-            <button
-              type="button"
-              onClick={onMigrateDataDir}
-              className="h-8 px-3 rounded-lg border border-paper-deep/45 text-[11px] text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
-            >
-              {t("settings.selectFolder", { defaultValue: "选择文件夹" })}
-            </button>
+            {import.meta.env.VITE_PORTABLE_BUILD !== "1" && (
+              <button
+                type="button"
+                onClick={onMigrateDataDir}
+                className="h-8 px-3 rounded-lg border border-paper-deep/45 text-[11px] text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
+              >
+                {t("settings.selectFolder", { defaultValue: "选择文件夹" })}
+              </button>
+            )}
           </div>
         </section>
 

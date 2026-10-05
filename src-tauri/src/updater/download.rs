@@ -1367,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn reuses_verified_existing_download_in_run() {
+    fn portable_reuses_verified_existing_download_in_run() {
         let paths = test_paths("download-reuse-existing");
         let asset_name = "asset.zip";
         let body = b"reusable payload";
@@ -1388,9 +1388,9 @@ mod tests {
   "publishedAt": "2026-05-26T12:00:00Z",
   "assets": [
     {{
-      "os": "macos",
-      "arch": "aarch64",
-      "kind": "app_zip",
+      "os": "windows",
+      "arch": "x86_64",
+      "kind": "portable_exe",
       "name": "{asset_name}",
       "sha256": "{sha256}",
       "size": {size},
@@ -1407,9 +1407,9 @@ mod tests {
             github_manifest_path: Some(manifest_path),
             allow_insecure_localhost: false,
             platform_override: Some(test_platform(
-                Os::Macos,
-                Arch::Aarch64,
-                InstallKind::MacosAppBundle,
+                Os::Windows,
+                Arch::X86_64,
+                InstallKind::WindowsPortable,
             )),
             cdk: None,
         };
@@ -1613,42 +1613,6 @@ mod tests {
             .expect_err("unknown install kind should be rejected");
 
         assert_eq!(error.code, "updatePlatformUnsupported");
-        let saved_state = state::load(&paths).expect("load failed state");
-        assert_eq!(saved_state.status, UpdateStatus::Failed);
-        assert_eq!(
-            saved_state
-                .last_error
-                .as_ref()
-                .and_then(|error| error.action.as_deref()),
-            Some("useSupportedInstall")
-        );
-    }
-
-    #[test]
-    fn run_rejects_windows_portable_install_kind() {
-        let paths = test_paths("download-run-portable-platform");
-        let service = UpdateDownloadService {
-            github_manifest_path: None,
-            allow_insecure_localhost: false,
-            platform_override: Some(test_platform(
-                Os::Windows,
-                Arch::X86_64,
-                InstallKind::WindowsPortable,
-            )),
-            cdk: None,
-        };
-
-        let error = service
-            .run(
-                &paths,
-                available_state("asset.zip", b"payload"),
-                Some(DownloadSourceUsed::Github),
-                Arc::new(AtomicBool::new(false)),
-                |_| {},
-            )
-            .expect_err("portable install kind should be rejected");
-
-        assert_eq!(error.code, "updatePortableManualOnly");
         let saved_state = state::load(&paths).expect("load failed state");
         assert_eq!(saved_state.status, UpdateStatus::Failed);
         assert_eq!(

@@ -101,6 +101,7 @@ struct MacosRollbackPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum InstallRollbackPlan {
     Macos(MacosRollbackPlan),
+    Portable(MacosRollbackPlan),
     Windows(WindowsRollbackPlan),
 }
 
@@ -841,9 +842,47 @@ fn install_windows_portable(
     command: &UpdateHelperCommand,
     log: &mut File,
 ) -> Result<AppliedUpdate, UpdateHelperExitCode> {
-    write_log_line(log, "windows portable install is manual-only")?;
-    let _ = command;
-    Err(UpdateHelperExitCode::UnsupportedInstallKind)
+    let parent = command
+        .target_path
+        .parent()
+        .ok_or(UpdateHelperExitCode::ReplacementFailed)?;
+    let stage_parent = parent.join("配置").join("updates");
+    fs::create_dir_all(&stage_parent).map_err(|_| UpdateHelperExitCode::ReplacementFailed)?;
+    let stage_root = unique_temp_path(&stage_parent, "portable-stage", None);
+    fs::create_dir(&stage_root).map_err(|_| UpdateHelperExitCode::ReplacementFailed)?;
+    let staged_exe = stage_root.join("new.exe");
+    let backup_path = stage_root.join("previous.exe");
+    let result = (|| {
+        fs::copy(&command.asset_path, &staged_exe)
+            .map_err(|_| UpdateHelperExitCode::AssetExtractFailed)?;
+        verify_windows_installed_version(&staged_exe, &command.target_version, log)?;
+        swap_portable_executable(&command.target_path, &staged_exe, &backup_path)?;
+        Ok(AppliedUpdate {
+            launch_target: command.target_path.clone(),
+            rollback: Some(InstallRollbackPlan::Portable(MacosRollbackPlan {
+                target_path: command.target_path.clone(),
+                backup_path: backup_path.clone(),
+                stage_root: stage_root.clone(),
+            })),
+        })
+    })();
+    if result.is_err() && !backup_path.exists() {
+        let _ = cleanup_stage_root(&stage_root, log);
+    }
+    result
+}
+
+fn swap_portable_executable(
+    target: &Path,
+    staged: &Path,
+    backup: &Path,
+) -> Result<(), UpdateHelperExitCode> {
+    fs::rename(target, backup).map_err(|_| UpdateHelperExitCode::ReplacementFailed)?;
+    if fs::rename(staged, target).is_err() {
+        fs::rename(backup, target).map_err(|_| UpdateHelperExitCode::ReplacementFailed)?;
+        return Err(UpdateHelperExitCode::ReplacementFailed);
+    }
+    Ok(())
 }
 
 fn install_windows_installer(
@@ -2401,6 +2440,9 @@ fn cleanup_applied_update(
 ) -> Result<(), UpdateHelperExitCode> {
     if let Some(rollback) = applied_update.rollback.as_ref() {
         match rollback {
+            InstallRollbackPlan::Portable(rollback) => {
+                cleanup_stage_root(&rollback.stage_root, log)?
+            }
             InstallRollbackPlan::Macos(rollback) => {
                 write_log_line(
                     log,
@@ -2444,6 +2486,13 @@ fn rollback_applied_update(
     log: &mut File,
 ) -> Result<(), UpdateHelperExitCode> {
     match rollback {
+        InstallRollbackPlan::Portable(rollback) => {
+            remove_file_if_exists(&rollback.target_path)
+                .map_err(|_| UpdateHelperExitCode::ReplacementFailed)?;
+            fs::rename(&rollback.backup_path, &rollback.target_path)
+                .map_err(|_| UpdateHelperExitCode::ReplacementFailed)?;
+            cleanup_stage_root(&rollback.stage_root, log)
+        }
         InstallRollbackPlan::Macos(rollback) => rollback_macos_update(rollback, log),
         InstallRollbackPlan::Windows(rollback) => rollback_windows_update(rollback, log),
     }
@@ -3381,6 +3430,27 @@ mod tests {
     #[cfg(unix)]
     fn temp_log(root: &Path, name: &str) -> File {
         open_log(&root.join(name)).expect("open temp log")
+    }
+
+    #[test]
+    fn portable_swap_preserves_chinese_path_data_and_restores_on_failure() {
+        let root = temp_dir("中文便携 更新");
+        fs::create_dir_all(root.join("数据")).unwrap();
+        let note = root.join("数据/测试笔记.md");
+        fs::write(&note, "我的笔记").unwrap();
+        let target = root.join("花笺.exe");
+        let staged = root.join("new.exe");
+        let backup = root.join("previous.exe");
+        fs::write(&target, b"old").unwrap();
+        fs::write(&staged, b"new").unwrap();
+        swap_portable_executable(&target, &staged, &backup).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(fs::read(&backup).unwrap(), b"old");
+        assert_eq!(fs::read_to_string(&note).unwrap(), "我的笔记");
+        fs::remove_file(&backup).unwrap();
+        assert!(swap_portable_executable(&target, &staged, &backup).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(fs::read_to_string(&note).unwrap(), "我的笔记");
     }
 
     #[test]

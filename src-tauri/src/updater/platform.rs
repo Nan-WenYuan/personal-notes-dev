@@ -72,8 +72,9 @@ impl PlatformInfo {
         }
 
         match self.install_kind {
-            InstallKind::WindowsNsis | InstallKind::MacosAppBundle => Ok(()),
-            InstallKind::WindowsPortable => Err(errors::portable_manual_only()),
+            InstallKind::WindowsNsis
+            | InstallKind::MacosAppBundle
+            | InstallKind::WindowsPortable => Ok(()),
             InstallKind::WindowsMsix => Err(errors::store_managed_manual_only()),
             InstallKind::Unknown => Err(errors::unsupported_platform()),
         }
@@ -107,7 +108,11 @@ fn compute_platform_info() -> PlatformInfo {
         arch: current_arch(),
         app_version: version::CURRENT_APP_VERSION.to_string(),
         app_id: APP_ID.into(),
-        install_kind: detect_install_kind(os, current_exe.as_deref()),
+        install_kind: if crate::services::notes::is_portable_build() {
+            InstallKind::WindowsPortable
+        } else {
+            detect_install_kind(os, current_exe.as_deref())
+        },
         current_exe: current_exe
             .as_ref()
             .map(|path| path.to_string_lossy().to_string()),
@@ -480,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_windows_portable_for_in_app_updates() {
+    fn supports_windows_portable_for_in_app_updates() {
         let platform = PlatformInfo {
             os: Os::Windows,
             arch: Arch::X86_64,
@@ -491,11 +496,9 @@ mod tests {
             current_app_bundle: None,
         };
 
-        let error = platform
+        platform
             .ensure_in_app_updates_supported()
-            .expect_err("portable installs should not support in-app updates");
-
-        assert_eq!(error.code, "updatePortableManualOnly");
+            .expect("portable installs support in-app updates");
     }
 
     #[test]

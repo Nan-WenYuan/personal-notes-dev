@@ -23,7 +23,7 @@ use std::{
 const MIRROR_CHYAN_MANIFEST_PATH_ENV: &str = "FLORAL_NOTEPAPER_UPDATE_MIRROR_MANIFEST_PATH";
 const GITHUB_MANIFEST_PATH_ENV: &str = "FLORAL_NOTEPAPER_UPDATE_GITHUB_MANIFEST_PATH";
 const GITHUB_REPO_ENV: &str = "FLORAL_NOTEPAPER_UPDATE_GITHUB_REPO";
-const DEFAULT_GITHUB_REPO: &str = "Achilng/floral-notepaper";
+const DEFAULT_GITHUB_REPO: &str = "Nan-WenYuan/zi-yong-bi-ji-ruan-jian-kai-fa";
 const MIRROR_CHYAN_API_BASE: &str = "https://mirrorchyan.com/api/resources";
 const MIRROR_CHYAN_RES_ID: &str = "floral";
 const MIRROR_CHYAN_RES_ID_OVERRIDE_ENV: &str = "FLORAL_NOTEPAPER_MIRROR_CHYAN_RES_ID";
@@ -123,7 +123,7 @@ impl MirrorChyanProvider {
         Self {
             manifest_path: env_manifest_path(MIRROR_CHYAN_MANIFEST_PATH_ENV),
             cdk: None,
-            offline: env::var("FLORAL_NOTEPAPER_UPDATE_OFFLINE").is_ok(),
+            offline: true,
         }
     }
 
@@ -220,7 +220,19 @@ impl UpdateCheckProvider for GithubProvider {
             return Err(errors::provider_not_configured(self.label()));
         }
 
-        check_github_api(context, priority)
+        let url = format!(
+            "https://github.com/{}/releases/latest/download/update-manifest.json",
+            github_repo()
+        );
+        let bytes = build_github_api_client()?
+            .get(url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|response| response.bytes())
+            .map_err(|error| {
+                errors::github_api_error(format!("无法读取自用版更新清单：{error}"))
+            })?;
+        parse_manifest_candidate(self.label(), &bytes, context, priority, false)
     }
 }
 
@@ -732,6 +744,7 @@ struct GithubApiRelease {
     tag_name: String,
     #[allow(dead_code)]
     name: Option<String>,
+    #[allow(dead_code)]
     body: Option<String>,
     assets: Vec<GithubApiAsset>,
 }
@@ -837,6 +850,7 @@ pub(crate) fn fetch_github_download_info(
     })
 }
 
+#[cfg(test)]
 fn check_github_api(
     context: &UpdateCheckContext,
     priority: usize,
@@ -960,7 +974,23 @@ fn load_manifest_candidate(
         );
         errors::with_detail(error, "path", manifest_path.display().to_string())
     })?;
-    let manifest = manifest::parse_manifest(&manifest_bytes)?;
+    parse_manifest_candidate(
+        provider,
+        &manifest_bytes,
+        context,
+        priority,
+        is_mirror_chyan_provider,
+    )
+}
+
+fn parse_manifest_candidate(
+    _provider: &str,
+    manifest_bytes: &[u8],
+    context: &UpdateCheckContext,
+    priority: usize,
+    is_mirror_chyan_provider: bool,
+) -> Result<ProviderCheck, AppError> {
+    let manifest = manifest::parse_manifest(manifest_bytes)?;
     let asset = manifest::select_asset(
         &manifest,
         &context.platform,
@@ -1495,28 +1525,16 @@ mod tests {
     }
 
     #[test]
-    fn run_rejects_windows_portable_install_kind() {
+    fn run_supports_windows_portable_install_kind() {
         let paths = test_paths("check-run-portable-platform");
+        let manifest_path = write_manifest(&paths, "portable.json", "1.0.5");
         let service = UpdateCheckService::with_providers_and_platform(
             MirrorChyanProvider::offline(),
-            GithubProvider::offline(),
+            GithubProvider::with_manifest_path(manifest_path),
             test_platform(Os::Windows, Arch::X86_64, InstallKind::WindowsPortable),
         );
-
-        let error = service
-            .run(&paths, true, "1.0.3")
-            .expect_err("portable install kind should be rejected");
-
-        assert_eq!(error.code, "updatePortableManualOnly");
-        let saved_state = state::load(&paths).expect("load failed state");
-        assert_eq!(saved_state.status, UpdateStatus::Failed);
-        assert_eq!(
-            saved_state
-                .last_error
-                .as_ref()
-                .and_then(|error| error.action.as_deref()),
-            Some("useSupportedInstall")
-        );
+        let result = service.run(&paths, true, "1.0.3").expect("portable check");
+        assert_eq!(result.status, UpdateCheckStatus::Available);
     }
 
     #[test]

@@ -387,12 +387,13 @@ fn resolve_install_target(platform: &PlatformInfo) -> Result<PathBuf, AppError> 
         super::types::InstallKind::MacosAppBundle => {
             resolve_macos_bundle_path(platform).ok_or_else(errors::unsupported_platform)
         }
-        super::types::InstallKind::WindowsNsis => platform
-            .current_exe
-            .as_ref()
-            .map(PathBuf::from)
-            .ok_or_else(errors::unsupported_platform),
-        super::types::InstallKind::WindowsPortable => Err(errors::portable_manual_only()),
+        super::types::InstallKind::WindowsNsis | super::types::InstallKind::WindowsPortable => {
+            platform
+                .current_exe
+                .as_ref()
+                .map(PathBuf::from)
+                .ok_or_else(errors::unsupported_platform)
+        }
         super::types::InstallKind::WindowsMsix => Err(errors::store_managed_manual_only()),
         super::types::InstallKind::Unknown => Err(errors::unsupported_platform()),
     }

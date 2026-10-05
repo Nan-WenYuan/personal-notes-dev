@@ -32,6 +32,22 @@ describe("resolveMarkdownImageSrc", () => {
     expect(convertFileSrc).not.toHaveBeenCalled();
   });
 
+  test("resolves encoded Chinese filenames and spaces without double encoding", () => {
+    resolveMarkdownImageSrc(
+      "./images/%E4%B8%AD%E6%96%87%20%E5%9B%BE%E7%89%87.png",
+      "D:\\我的 笔记\\数据\\",
+      convertFileSrc,
+    );
+    expect(convertFileSrc).toHaveBeenCalledWith("D:/我的 笔记/数据/images/中文 图片.png");
+  });
+
+  test("preserves literal percent signs and encoded separators", () => {
+    resolveMarkdownImageSrc("images/100%.png", "D:/笔记", convertFileSrc);
+    expect(convertFileSrc).toHaveBeenLastCalledWith("D:/笔记/images/100%.png");
+    resolveMarkdownImageSrc("images/%2e%2e%2fprivate.png", "D:/笔记", convertFileSrc);
+    expect(convertFileSrc).toHaveBeenLastCalledWith("D:/笔记/images/%2e%2e%2fprivate.png");
+  });
+
   test("keeps image paths unchanged when the base directory is unavailable", () => {
     expect(resolveMarkdownImageSrc("images/photo.png", undefined, convertFileSrc)).toBe(
       "images/photo.png",

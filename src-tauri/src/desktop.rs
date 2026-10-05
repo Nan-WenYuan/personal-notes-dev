@@ -1605,7 +1605,7 @@ fn prewarm_notepad(app: &AppHandle) -> Result<(), AppError> {
     let visual_options = dynamic_window_visual_options(&label);
     let locale = configured_locale();
 
-    let window = WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         &label,
         WebviewUrl::App("index.html?view=notepad&standby=1".into()),
@@ -1620,8 +1620,14 @@ fn prewarm_notepad(app: &AppHandle) -> Result<(), AppError> {
     .shadow(false)
     .skip_taskbar(true)
     .visible(false)
-    .focused(false)
-    .build()?;
+    .focused(false);
+    #[cfg(target_os = "windows")]
+    let builder = if crate::services::notes::is_portable_build() {
+        builder.data_directory(crate::services::notes::default_config_dir()?.join("网页缓存"))
+    } else {
+        builder
+    };
+    let window = builder.build()?;
 
     // 预热窗口在池中等待期间保持低内存档位，激活时恢复 Normal
     set_webview_memory_usage_level(&window, true);
@@ -1840,6 +1846,13 @@ fn open_or_focus_window(
         .shadow(opts.shadow)
         .skip_taskbar(opts.skip_taskbar)
         .visible(false);
+
+    #[cfg(target_os = "windows")]
+    let builder = if crate::services::notes::is_portable_build() {
+        builder.data_directory(crate::services::notes::default_config_dir()?.join("网页缓存"))
+    } else {
+        builder
+    };
 
     // 仅主窗口使用 macOS 原生红绿灯（Overlay 标题栏）。notepad / tile 是
     // decorations: false 的透明无边框窗口，叠加红绿灯会渲染在内容区上方造成冲突

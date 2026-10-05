@@ -232,6 +232,9 @@ pub(crate) fn default_config_dir() -> Result<PathBuf, AppError> {
             return Ok(PathBuf::from(trimmed));
         }
     }
+    if is_portable_build() {
+        return Ok(env::current_exe()?.with_file_name("配置"));
+    }
     if let Some(dir) = dirs::config_dir() {
         return Ok(dir.join("floral-notepaper"));
     }
@@ -244,6 +247,10 @@ fn default_data_dir() -> Result<PathBuf, AppError> {
         if !trimmed.is_empty() {
             return Ok(PathBuf::from(trimmed));
         }
+    }
+
+    if is_portable_build() {
+        return Ok(env::current_exe()?.with_file_name("数据"));
     }
 
     #[cfg(target_os = "macos")]
@@ -264,6 +271,12 @@ fn resolve_data_dir(config_dir: &Path) -> Result<PathBuf, AppError> {
         if !trimmed.is_empty() {
             return Ok(PathBuf::from(trimmed));
         }
+    }
+
+    // Resolve beside the current EXE instead of following stale absolute paths
+    // saved before the portable folder was moved.
+    if is_portable_build() {
+        return default_data_dir();
     }
 
     #[derive(Deserialize)]
@@ -310,6 +323,10 @@ fn resolve_data_dir(config_dir: &Path) -> Result<PathBuf, AppError> {
     }
 
     default_data_dir()
+}
+
+pub(crate) fn is_portable_build() -> bool {
+    cfg!(target_os = "windows") && env!("NOTES_PORTABLE_BUILD") == "1"
 }
 
 fn data_dir_from_notes_dir(notes_dir: &str) -> PathBuf {
@@ -702,7 +719,7 @@ impl NoteStore {
     pub fn load_config(&self) -> Result<AppConfig, AppError> {
         self.ensure_config_dir()?;
         let path = self.config_path();
-        if !path.exists() {
+        if !path.exists() && !is_portable_build() {
             self.migrate_config_from_legacy()?;
         }
         if !path.exists() {
@@ -715,7 +732,15 @@ impl NoteStore {
         let mut config: AppConfig = serde_json::from_str(&fs::read_to_string(&path)?)?;
         // config 中记录的 dataDir 是上次运行时数据所在位置；若本次 resolve 出的
         // self.data_dir 与之不同（如 FLORAL_NOTEPAPER_DATA_DIR 被改），尝试搬运旧数据
-        self.migrate_data_dir_if_relocated(&mut config);
+        if !is_portable_build() {
+            self.migrate_data_dir_if_relocated(&mut config);
+        } else if let Some(old_data_dir) = config.data_dir.as_deref() {
+            config.background_image_path = remap_path_prefix(
+                &config.background_image_path,
+                Path::new(old_data_dir),
+                &self.data_dir,
+            );
+        }
         config.data_dir = Some(self.data_dir.to_string_lossy().to_string());
         config.tab_indent_size = config.tab_indent_size.clamp(1, 8);
         write_json_atomic(&path, &config)?;
@@ -1756,6 +1781,43 @@ fn default_locale() -> String {
 mod tests {
     use super::*;
     use std::{fs, path::PathBuf};
+
+    #[test]
+    fn supports_chinese_and_spaced_paths_for_notes_and_images() {
+        let root = test_root("中文路径 空格");
+        let store = NoteStore::new(root.join("配置 空间"), root.join("数据 空间"));
+        write_json_atomic(&store.config_path(), &store.default_config())
+            .expect("seed isolated config");
+        store.create_category("学习 资料").expect("create category");
+        let source = root.join("会议 纪要.md");
+        let content = "# 中文标题\n记录中文路径与空格。";
+        fs::write(&source, content).expect("write source");
+        let note = store
+            .import_markdown_file(&source, "学习 资料")
+            .expect("import");
+        assert_eq!(store.read_note(&note.id).expect("read").content, content);
+        assert!(store
+            .notes_dir()
+            .join("学习 资料")
+            .join(&note.file_name)
+            .exists());
+        let exported = root.join("导出 资料").join("会议 纪要.md");
+        store
+            .export_markdown_file(&note.id, &exported)
+            .expect("export");
+        assert_eq!(
+            fs::read_to_string(exported).expect("read exported"),
+            content
+        );
+        let image = store
+            .save_image(&note.id, b"test-image", "png")
+            .expect("save image");
+        assert_eq!(
+            fs::read(store.data_dir().join(image)).expect("read image"),
+            b"test-image"
+        );
+        fs::remove_dir_all(root).expect("clean test files");
+    }
 
     fn test_root(name: &str) -> PathBuf {
         let base = std::env::var_os("FLORAL_NOTEPAPER_TEST_TEMP_DIR")

@@ -269,6 +269,13 @@ fn config_save(app: AppHandle, config: AppConfig) -> Result<AppConfig, AppError>
 
 #[tauri::command]
 fn config_migrate_data_dir(app: AppHandle, new_data_dir: String) -> Result<AppConfig, AppError> {
+    if services::notes::is_portable_build() {
+        return Err(AppError {
+            code: "portableDataDirFixed".into(),
+            message: "便携版数据保存在程序旁，移动整个程序文件夹即可迁移。".into(),
+            details: Default::default(),
+        });
+    }
     let store = default_store()?;
     let new_path = PathBuf::from(&new_data_dir).join("floral");
     let new_store = store.migrate_data_to(&new_path)?;
@@ -435,6 +442,17 @@ pub fn try_exit_for_cli_version_or_help() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    if services::notes::is_portable_build() {
+        // Keep the personal portable edition independent of an installed copy.
+        context.config_mut().identifier.push_str(".portable");
+        let cache_dir = services::notes::default_config_dir()
+            .expect("resolve portable config directory")
+            .join("网页缓存");
+        for window in &mut context.config_mut().app.windows {
+            window.data_directory = Some(cache_dir.clone());
+        }
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_dialog::init())
@@ -514,7 +532,7 @@ pub fn run() {
             updater::commands::update_cancel,
             take_startup_file
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(move |_app_handle, _event| {
             #[cfg(target_os = "macos")]
