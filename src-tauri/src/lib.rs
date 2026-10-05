@@ -172,8 +172,60 @@ fn images_save(request: tauri::ipc::Request<'_>) -> Result<String, AppError> {
 }
 
 #[tauri::command]
+fn images_clipboard_paths() -> Result<Vec<String>, AppError> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows_sys::Win32::{
+            System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard},
+            UI::Shell::DragQueryFileW,
+        };
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return Ok(Vec::new());
+        }
+        struct ClipboardGuard;
+        impl Drop for ClipboardGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    CloseClipboard();
+                }
+            }
+        }
+        let _guard = ClipboardGuard;
+        let handle = GetClipboardData(15); // CF_HDROP: Explorer's copied file list.
+        if handle.is_null() {
+            return Ok(Vec::new());
+        }
+        let mut paths = Vec::new();
+        for index in 0..DragQueryFileW(handle, u32::MAX, std::ptr::null_mut(), 0) {
+            let length = DragQueryFileW(handle, index, std::ptr::null_mut(), 0);
+            let mut buffer = vec![0u16; length as usize + 1];
+            DragQueryFileW(handle, index, buffer.as_mut_ptr(), length + 1);
+            let path = String::from_utf16_lossy(&buffer[..length as usize]);
+            let extension = std::path::Path::new(&path)
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].contains(&extension.as_str()) {
+                paths.push(path);
+            }
+        }
+        return Ok(paths);
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
 fn images_save_from_path(note_id: String, file_path: String) -> Result<String, AppError> {
     let path = PathBuf::from(&file_path);
+    if std::fs::metadata(&path)?.len() > 20 * 1024 * 1024 {
+        return Err(AppError {
+            code: "imageTooLarge".into(),
+            message: "图片文件过大（上限 20 MB）".into(),
+            details: Default::default(),
+        });
+    }
     let data = std::fs::read(&path)?;
     let extension = path
         .extension()
@@ -503,6 +555,7 @@ pub fn run() {
             categories_rename,
             categories_delete,
             images_save,
+            images_clipboard_paths,
             images_save_from_path,
             images_get_base_dir,
             images_clean_unused,

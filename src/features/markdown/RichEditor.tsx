@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useImperativeHandle } from "react";
 import type { Ref } from "react";
 import Vditor from "vditor";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { saveImage } from "../images/api";
+import { saveImage, saveImageFromPath } from "../images/api";
+import { richToolbar } from "./toolbarAppearance";
 import "vditor/dist/index.css";
 import "./richEditor.css";
 
@@ -38,6 +39,7 @@ export function RichEditor(props: Props) {
   const latest = useRef(props);
   latest.current = props;
   const lastValue = useRef(props.content);
+  const replayingPaste = useRef(false);
   const [ready, setReady] = useState(false);
   useImperativeHandle(
     props.editorRef,
@@ -76,23 +78,7 @@ export function RichEditor(props: Props) {
         value: latest.current.content,
         placeholder: "开始写作……",
         lang: "zh_CN",
-        toolbar: [
-          "headings",
-          "bold",
-          "italic",
-          "strike",
-          "list",
-          "ordered-list",
-          "check",
-          "quote",
-          "code",
-          "inline-code",
-          "link",
-          "upload",
-          "table",
-          "undo",
-          "redo",
-        ],
+        toolbar: richToolbar,
         toolbarConfig: { pin: true },
         preview: {
           maxWidth: 10000,
@@ -147,11 +133,11 @@ export function RichEditor(props: Props) {
                 editor.insertMD(lines.join("\n") + "\n");
                 emit(editor.getValue());
               }
-              return "";
+              return null;
             } catch (error) {
               const message = error instanceof Error ? error.message : "图片粘贴失败";
               latest.current.onError(message);
-              return message;
+              return null;
             }
           },
         },
@@ -195,6 +181,63 @@ export function RichEditor(props: Props) {
       className="rich-editor flex-1 min-h-0 min-w-0"
       style={{ fontSize: props.fontSize ?? 14 }}
       data-rich-editor="true"
+      onPasteCapture={(event) => {
+        if (replayingPaste.current || props.disabled || !instance.current) return;
+        const target = event.target as HTMLElement;
+        if (!target.closest('[contenteditable="true"]')) return;
+        const editor = instance.current;
+        const files = Array.from(event.clipboardData.files).filter(
+          (file) => file.type in extensions,
+        );
+        const data = new DataTransfer();
+        for (const type of event.clipboardData.types) {
+          if (type !== "Files") data.setData(type, event.clipboardData.getData(type));
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void (async () => {
+          try {
+            const paths = files.length ? [] : await invoke<string[]>("images_clipboard_paths");
+            if (instance.current !== editor) return;
+            if (!files.length && !paths.length) {
+              replayingPaste.current = true;
+              try {
+                target.dispatchEvent(
+                  new ClipboardEvent("paste", {
+                    bubbles: true,
+                    cancelable: true,
+                    clipboardData: data,
+                  }),
+                );
+              } finally {
+                replayingPaste.current = false;
+              }
+              return;
+            }
+            const id = await latest.current.onEnsureNoteSaved();
+            if (!id) throw new Error("请先保存笔记再插入图片");
+            const links: string[] = [];
+            for (const file of files) {
+              if (file.size > 20 * 1024 * 1024) throw new Error("图片文件过大（上限 20 MB）");
+              links.push(
+                await saveImage(
+                  id,
+                  new Uint8Array(await file.arrayBuffer()),
+                  extensions[file.type],
+                ),
+              );
+            }
+            for (const path of paths) links.push(await saveImageFromPath(id, path));
+            if (instance.current !== editor) return;
+            editor.insertMD(links.map((path) => `![](${path})`).join("\n") + "\n");
+            const value = editor.getValue();
+            lastValue.current = value;
+            latest.current.onChange(value);
+          } catch (error) {
+            latest.current.onError(error instanceof Error ? error.message : "图片粘贴失败");
+          }
+        })();
+      }}
       onContextMenu={(event) => event.stopPropagation()}
       onInput={(event) => {
         if (!(event.nativeEvent as InputEvent).isComposing) syncInput();
