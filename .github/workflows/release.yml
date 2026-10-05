@@ -10,16 +10,42 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check published release
+        id: existing
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github+json' }
+          $published = $false
+          try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/v$version" -Headers $headers
+            $published = -not $release.draft
+            if ($published) {
+              $names = @($release.assets | ForEach-Object { $_.name })
+              if ("floral-notepaper_${version}_windows_x64_portable.exe" -notin $names -or 'update-manifest.json' -notin $names) { throw 'Published release is incomplete' }
+            }
+          } catch {
+            if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          "published=$($published.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($published) { Write-Output "v$version already published; skip duplicate build and upload" }
       - uses: actions/setup-node@v4
+        if: steps.existing.outputs.published != 'true'
         with:
           node-version: "24"
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.existing.outputs.published != 'true'
       - run: npm ci
+        if: steps.existing.outputs.published != 'true'
       - name: Build portable folder
+        if: steps.existing.outputs.published != 'true'
         shell: pwsh
         run: ./scripts/build-portable.ps1 -Type R
       - name: Publish EXE and checksum manifest
+        if: steps.existing.outputs.published != 'true'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

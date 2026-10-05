@@ -30,9 +30,30 @@ if (-not $token) {
 if (-not $token) { throw 'GitHub authentication unavailable' }
 $headers = @{ Authorization="Bearer $token"; Accept='application/vnd.github+json'; 'X-GitHub-Api-Version'='2022-11-28' }
 try {
+    $existingRelease = $null
+    try {
+        $existingRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases/tags/$tag" -Headers $headers
+    } catch {
+        if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+    }
+    if ($existingRelease -and -not $existingRelease.draft) {
+        $publishedNames = @($existingRelease.assets | ForEach-Object { $_.name })
+        if ($assetName -notin $publishedNames -or 'update-manifest.json' -notin $publishedNames) { throw 'Published release is incomplete; refusing to overwrite it' }
+        Write-Output "Already published: $tag; existing release assets preserved"
+        return
+    }
     $body = @{ tag_name=$tag; target_commitish=$Target; name="花笺 $version 自用便携版"; draft=$true; prerelease=$false
         body="$ReleaseNotes`n`n自用笔记软件开发。Windows x64 便携 EXE，无安装包、无压缩包。首次使用请将 EXE 重命名为花笺.exe，所需许可文本位于源码 LICENSE 与 src/assets/fonts。旧版首次切换只替换 EXE，保留配置和数据目录。1.4.0 起支持本仓库应用内更新。SHA256: $hash" } | ConvertTo-Json
-    $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repository/releases" -Headers $headers -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json'
+    if ($existingRelease) {
+        $release = $existingRelease
+        foreach ($draftAsset in $release.assets) {
+            if ($draftAsset.name -in @($assetName, 'update-manifest.json')) {
+                Invoke-RestMethod -Method Delete -Uri $draftAsset.url -Headers $headers | Out-Null
+            }
+        }
+    } else {
+        $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repository/releases" -Headers $headers -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json'
+    }
     $uploadBase = $release.upload_url -replace '\{.*$', ''
     foreach ($asset in @(@{path=$binary.FullName;name=$assetName},@{path=$manifestPath;name='update-manifest.json'})) {
         Write-Output ('Uploading: ' + $asset.name)
