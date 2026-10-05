@@ -1,11 +1,17 @@
-.rich-editor {
+.rich-editor .vditor {
   --border-color: var(--color-paper-deep);
   --panel-background-color: var(--color-cloud);
-  --toolbar-background-color: var(--color-cloud);
-  --textarea-background-color: var(--color-cloud);
+  --toolbar-background-color: transparent;
+  --textarea-background-color: transparent;
   --textarea-text-color: var(--color-ink-soft);
   --toolbar-icon-color: var(--color-ink-ghost);
   --toolbar-icon-hover-color: var(--color-bamboo);
+  --second-color: var(--color-ink-ghost);
+  --toolbar-height: 24px;
+  --panel-shadow: 0 4px 16px rgb(26 26 24 / 8%);
+  --hover-background-color: var(--color-paper-warm);
+  --heading-border-color: var(--color-paper-deep);
+  --code-background-color: var(--color-paper-warm);
 }
 .rich-editor .vditor {
   border: 0;
@@ -13,19 +19,86 @@
   background: transparent;
 }
 .rich-editor .vditor-toolbar {
-  padding: 5px 12px !important;
-  border-bottom: 1px solid var(--color-paper-deep);
+  padding: 8px 16px 4px !important;
+  border-bottom: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex-wrap: wrap;
+}
+.rich-editor .vditor-toolbar__item {
+  float: none;
+  padding: 0;
+}
+.rich-editor .vditor-toolbar__item .vditor-tooltipped {
+  width: 24px;
+  height: 24px;
+  padding: 5px;
+  border-radius: 4px;
+  color: var(--color-ink-ghost);
+  transition:
+    color 150ms,
+    background-color 150ms;
+}
+.rich-editor .vditor-toolbar__item svg {
+  width: 12px;
+  height: 12px;
+}
+.rich-editor .vditor-toolbar__item .vditor-tooltipped:hover {
+  background: var(--color-paper-warm);
+  color: var(--color-ink-faint);
+}
+.rich-editor .vditor-toolbar__item .vditor-menu--current {
+  color: var(--color-bamboo);
+  background: var(--color-bamboo-mist);
+}
+.rich-editor .vditor-toolbar__item .vditor-menu--disabled {
+  opacity: 0.35;
+}
+.rich-editor .vditor-toolbar__item input {
+  width: 24px;
+  height: 24px;
+}
+.rich-editor .vditor-panel {
+  border: 1px solid var(--color-paper-deep);
+  border-radius: 8px;
+  color: var(--color-ink-soft);
+}
+.rich-editor .vditor-wysiwyg pre.vditor-reset,
+.rich-editor .vditor-wysiwyg pre.vditor-reset:focus {
+  background: transparent;
+}
+.rich-editor .vditor-wysiwyg pre.vditor-reset:empty::before {
+  color: color-mix(in srgb, var(--color-ink-ghost) 40%, transparent);
 }
 .rich-editor .vditor-wysiwyg {
   background: transparent;
 }
 .rich-editor .vditor-reset {
-  padding: 16px 24px !important;
+  padding: 8px 24px 24px !important;
   font-size: inherit !important;
   color: var(--color-ink-soft);
   font-family: inherit;
   line-height: 1.9;
+}
+.rich-editor .vditor-reset h1,
+.rich-editor .vditor-reset h2 {
+  border-color: color-mix(in srgb, var(--color-paper-deep) 40%, transparent);
+  color: var(--color-ink);
+}
+.rich-editor .vditor-reset a {
+  color: var(--color-bamboo);
+}
+.rich-editor .vditor-reset blockquote {
+  color: var(--color-ink-faint);
+  border-color: var(--color-paper-deep);
+}
+.rich-editor .vditor-reset table tr {
+  background: transparent;
+}
+.rich-editor .vditor-reset table tr:nth-child(2n) {
+  background: color-mix(in srgb, var(--color-paper-warm) 40%, transparent);
 }
 .rich-editor .vditor-reset img {
   max-width: 100%;
