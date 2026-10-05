@@ -23,7 +23,7 @@ use std::{
 const MIRROR_CHYAN_MANIFEST_PATH_ENV: &str = "FLORAL_NOTEPAPER_UPDATE_MIRROR_MANIFEST_PATH";
 const GITHUB_MANIFEST_PATH_ENV: &str = "FLORAL_NOTEPAPER_UPDATE_GITHUB_MANIFEST_PATH";
 const GITHUB_REPO_ENV: &str = "FLORAL_NOTEPAPER_UPDATE_GITHUB_REPO";
-const DEFAULT_GITHUB_REPO: &str = "Nan-WenYuan/zi-yong-bi-ji-ruan-jian-kai-fa";
+const DEFAULT_GITHUB_REPO: &str = "Nan-WenYuan/personal-notes-dev";
 const MIRROR_CHYAN_API_BASE: &str = "https://mirrorchyan.com/api/resources";
 const MIRROR_CHYAN_RES_ID: &str = "floral";
 const MIRROR_CHYAN_RES_ID_OVERRIDE_ENV: &str = "FLORAL_NOTEPAPER_MIRROR_CHYAN_RES_ID";

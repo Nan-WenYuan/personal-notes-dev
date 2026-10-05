@@ -6,7 +6,7 @@
 
 ## 便携版
 
-Windows 便携版放在项目根目录的 `交付` 文件夹中，不生成安装包或压缩包。
+Windows 便携版放在项目根目录的 `交付/花笺` 文件夹中，不生成安装包或压缩包。
 
 双击 `花笺.exe` 即可运行，不需要启动脚本。配置和笔记分别保存在 EXE 旁的 `配置`、`数据` 文件夹；拷走整个便携文件夹即可继续使用，不会跟随旧电脑上的绝对路径。便携版固定使用包内数据目录，设置中不提供独立迁移目录操作。
 
@@ -37,6 +37,6 @@ pwsh -NoProfile -File scripts/build-portable.ps1
 
 ## GitHub 更新
 
-源码与便携版发布维护在 [Nan-WenYuan/zi-yong-bi-ji-ruan-jian-kai-fa](https://github.com/Nan-WenYuan/zi-yong-bi-ji-ruan-jian-kai-fa)，应用仍名为“花笺”。1.4.0 起通过此仓库的公开 Release 检查和下载更新，校验 SHA256 后只替换 EXE，保留配置和笔记。首次从旧版本切换需要更新一次 EXE。
+源码与便携版发布维护在 [Nan-WenYuan/personal-notes-dev](https://github.com/Nan-WenYuan/personal-notes-dev)，应用仍名为“花笺”。1.4.0 起通过此仓库的公开 Release 检查和下载更新，校验 SHA256 后只替换 EXE，保留配置和笔记。首次从旧版本切换需要更新一次 EXE。
 
 本地打包：`powershell -ExecutionPolicy Bypass -File scripts/build-portable.ps1 -Type R`。发布：`scripts/publish-github-release.ps1 -Executable <路径>`；也可推送与 package.json 一致的 `v主.次.修` 标签由 GitHub Actions 自动发布。

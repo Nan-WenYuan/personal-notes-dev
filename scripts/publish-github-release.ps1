@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][string]$Executable, [string]$Target = 'main')
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$repository = 'Nan-WenYuan/zi-yong-bi-ji-ruan-jian-kai-fa'
+$repository = 'Nan-WenYuan/personal-notes-dev'
 $version = (Get-Content (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
 $binary = Get-Item -LiteralPath $Executable
 if ($binary.VersionInfo.ProductVersion -ne $version) { throw 'Executable version differs from package.json' }
@@ -20,7 +20,7 @@ $manifest = @{
     assets=@(@{ os='windows'; arch='x86_64'; kind='portable_exe'; name=$assetName; sha256=$hash; size=$binary.Length
         githubUrl="https://github.com/$repository/releases/download/$tag/$assetName" })
 }
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+[IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 $token = $env:GITHUB_TOKEN
 if (-not $token) {
     $credentialText = "protocol=https`nhost=github.com`n`n" | git credential fill

@@ -21,7 +21,9 @@ try {
     $binary = Join-Path $repoRoot 'src-tauri/target/release/floral-notepaper.exe'
     if (-not (Test-Path -LiteralPath $binary)) { throw "Executable missing: $binary" }
     $timestamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time').ToString('yyMMdd_HHmmss')
-    $outputDir = Join-Path $repoRoot "交付/花笺-$version.${timestamp}_$Type"
+    $outputDir = Join-Path $repoRoot "交付/花笺"
+    $outputExe = Join-Path $outputDir "花笺.exe"
+    if (@(Get-Process | Where-Object { $_.Path -eq $outputExe }).Count -gt 0) { throw "请先退出正在运行的花笺；配置和数据不会修改。" }
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     Copy-Item -LiteralPath $binary -Destination (Join-Path $outputDir '花笺.exe')
     $licensesDir = Join-Path $outputDir '许可证'
