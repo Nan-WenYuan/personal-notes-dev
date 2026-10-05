@@ -2332,7 +2332,7 @@ export function MainWindow({
                             onClick={() => void handleSelectExternalFile(file.id)}
                             onMouseEnter={() => setHoveredId(file.id)}
                             onMouseLeave={() => setHoveredId(null)}
-                            className={`w-full text-left rounded-xl px-3 py-2.5 transition-all duration-[600ms] cursor-pointer group relative ${
+                            className={`w-full text-left rounded-xl px-3 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
                               isSelected
                                 ? "bg-bamboo-mist/70"
                                 : isHovered
@@ -2442,7 +2442,7 @@ export function MainWindow({
                                 onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
                                 onMouseEnter={() => setHoveredId(note.id)}
                                 onMouseLeave={() => setHoveredId(null)}
-                                className={`w-full text-left rounded-xl px-3 py-2.5 transition-all duration-[600ms] cursor-pointer group relative ${
+                                className={`w-full text-left rounded-xl px-3 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
                                   isSelected
                                     ? "bg-bamboo-mist/70"
                                     : isHovered
@@ -2467,10 +2467,6 @@ export function MainWindow({
                                     {formatShortDate(note.updatedAt)}
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-ink-ghost leading-relaxed line-clamp-2 group-hover:text-ink-faint transition-colors">
-                                  {note.preview ||
-                                    t("common.blankNote", { defaultValue: "空白笔记" })}
-                                </p>
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
                                     {formatTime(note.updatedAt)}
@@ -2646,11 +2642,6 @@ export function MainWindow({
                                         {formatShortDate(note.updatedAt)}
                                       </span>
                                     </div>
-
-                                    <p className="text-[11px] text-ink-ghost leading-relaxed line-clamp-2 group-hover:text-ink-faint transition-colors">
-                                      {note.preview ||
-                                        t("common.blankNote", { defaultValue: "空白笔记" })}
-                                    </p>
 
                                     <div className="flex items-center gap-2 mt-1">
                                       <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
