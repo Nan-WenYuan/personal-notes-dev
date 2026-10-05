@@ -35,6 +35,9 @@ try {
         $existingRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases/tags/$tag" -Headers $headers
     } catch {
         if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+        # The tag endpoint excludes unpublished drafts. Recover the existing draft from the list.
+        $draftReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases?per_page=100" -Headers $headers
+        $existingRelease = $draftReleases | Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1
     }
     if ($existingRelease -and -not $existingRelease.draft) {
         $publishedNames = @($existingRelease.assets | ForEach-Object { $_.name })
@@ -57,7 +60,29 @@ try {
     $uploadBase = $release.upload_url -replace '\{.*$', ''
     foreach ($asset in @(@{path=$binary.FullName;name=$assetName},@{path=$manifestPath;name='update-manifest.json'})) {
         Write-Output ('Uploading: ' + $asset.name)
-        Invoke-RestMethod -Method Post -Uri ($uploadBase + '?name=' + $asset.name) -Headers $headers -InFile $asset.path -ContentType 'application/octet-stream' | Out-Null
+        $curlFile = $asset.path.Replace('\', '\\').Replace('"', '\"')
+        $curlConfig = @"
+url = "$uploadBase`?name=$($asset.name)"
+request = "POST"
+header = "Authorization: Bearer $token"
+header = "Accept: application/vnd.github+json"
+header = "Content-Type: application/octet-stream"
+data-binary = "@$curlFile"
+connect-timeout = 15
+max-time = 300
+fail-with-body
+show-error
+progress-bar
+"@
+        $oldOutputEncoding = $OutputEncoding
+        try {
+            $OutputEncoding = [Text.UTF8Encoding]::new($false)
+            $curlConfig | & curl.exe --config - | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed: $LASTEXITCODE" }
+        } finally {
+            $OutputEncoding = $oldOutputEncoding
+            $curlConfig = $null
+        }
     }
     Invoke-RestMethod -Method Patch -Uri $release.url -Headers $headers -Body '{"draft":false}' -ContentType 'application/json' | Out-Null
     Write-Output ("Published: https://github.com/$repository/releases/tag/$tag")
