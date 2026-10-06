@@ -531,7 +531,8 @@ export function MainWindow({
       const target = event.target as HTMLElement;
       if (
         target.closest('[data-note-id], [role="dialog"]') ||
-        noteMenuRef.current?.contains(target)
+        noteMenuRef.current?.contains(target) ||
+        categoryMenuRef.current?.contains(target)
       )
         return;
       resetNoteSelection();
@@ -557,7 +558,7 @@ export function MainWindow({
       document.removeEventListener("keydown", escape, true);
       void unlisten.then((fn) => fn());
     };
-  }, [resetNoteSelection, noteMenuRef]);
+  }, [resetNoteSelection, noteMenuRef, categoryMenuRef]);
   useEffect(() => {
     const ids = new Set(notes.map((note) => note.id));
     setSelectedNoteIds((current) => {
@@ -3902,6 +3903,7 @@ export function MainWindow({
           ) : (
             <div key="category-main" className="animate-menu-slide-right">
               <button
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
                   setCategoryMenuClosing(true);
                   setRenamingCategory(categoryMenu.category);
