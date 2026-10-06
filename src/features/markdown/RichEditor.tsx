@@ -4,7 +4,8 @@ import Vditor from "vditor";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { saveImage, saveImageFromPath } from "../images/api";
-import { richToolbar } from "./toolbarAppearance";
+import { createRichToolbar } from "./toolbarAppearance";
+import { captureInsertionPosition, restoreInsertionPosition } from "./insertionPosition";
 import "vditor/dist/index.css";
 import "./richEditor.css";
 
@@ -78,7 +79,7 @@ export function RichEditor(props: Props) {
         value: latest.current.content,
         placeholder: "开始写作……",
         lang: "zh_CN",
-        toolbar: richToolbar,
+        toolbar: createRichToolbar(() => editor),
         toolbarConfig: { pin: true },
         preview: {
           maxWidth: 10000,
@@ -118,6 +119,7 @@ export function RichEditor(props: Props) {
           multiple: true,
           max: 20 * 1024 * 1024,
           handler: async (files) => {
+            const position = captureInsertionPosition(host.current);
             try {
               const id = await latest.current.onEnsureNoteSaved();
               if (!id) throw new Error("请先保存笔记再插入图片");
@@ -130,6 +132,7 @@ export function RichEditor(props: Props) {
                 lines.push(`![](${path})`);
               }
               if (!disposed) {
+                restoreInsertionPosition(host.current, position);
                 editor.insertMD(lines.join("\n") + "\n");
                 emit(editor.getValue());
               }
@@ -186,6 +189,7 @@ export function RichEditor(props: Props) {
         const target = event.target as HTMLElement;
         if (!target.closest('[contenteditable="true"]')) return;
         const editor = instance.current;
+        const position = captureInsertionPosition(host.current);
         const files = Array.from(event.clipboardData.files).filter(
           (file) => file.type in extensions,
         );
@@ -200,6 +204,7 @@ export function RichEditor(props: Props) {
             const paths = files.length ? [] : await invoke<string[]>("images_clipboard_paths");
             if (instance.current !== editor) return;
             if (!files.length && !paths.length) {
+              restoreInsertionPosition(host.current, position);
               replayingPaste.current = true;
               try {
                 target.dispatchEvent(
@@ -229,6 +234,7 @@ export function RichEditor(props: Props) {
             }
             for (const path of paths) links.push(await saveImageFromPath(id, path));
             if (instance.current !== editor) return;
+            restoreInsertionPosition(host.current, position);
             editor.insertMD(links.map((path) => `![](${path})`).join("\n") + "\n");
             const value = editor.getValue();
             lastValue.current = value;

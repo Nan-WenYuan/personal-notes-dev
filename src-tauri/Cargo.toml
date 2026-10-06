@@ -1,6 +1,6 @@
 [package]
 name = "floral-notepaper"
-version = "1.5.4"
+version = "1.5.5"
 description = "Personal development edition for local notes and knowledge management"
 authors = ["Nan-WenYuan", "Achilng"]
 repository = "https://github.com/Nan-WenYuan/personal-notes-dev"

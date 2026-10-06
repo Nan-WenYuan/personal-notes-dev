@@ -1,3 +1,5 @@
+import { editorTools } from "../features/markdown/toolbarAppearance";
+import { open } from "@tauri-apps/plugin-dialog";
 import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
 import {
   useCallback,
@@ -133,7 +135,12 @@ type FormatAction =
   | "code"
   | "quote"
   | "inlineMath"
-  | "blockMath";
+  | "blockMath"
+  | "strike"
+  | "check"
+  | "link"
+  | "table"
+  | "codeBlock";
 
 function applyFormat(
   textarea: HTMLTextAreaElement,
@@ -155,6 +162,29 @@ function applyFormat(
   let cursorEnd: number;
 
   switch (action) {
+    case "strike":
+    case "check":
+    case "link":
+    case "table":
+    case "codeBlock": {
+      const text = selected || "文本";
+      const snippet =
+        action === "strike"
+          ? `~~${text}~~`
+          : action === "check"
+            ? text
+                .split("\n")
+                .map((line) => `- [ ] ${line}`)
+                .join("\n")
+            : action === "link"
+              ? `[${text}](https://)`
+              : action === "table"
+                ? "\n| 列1 | 列2 |\n| --- | --- |\n|  |  |\n"
+                : `\n\`\`\`\n${selected}\n\`\`\`\n`;
+      result = before + snippet + after;
+      cursorStart = cursorEnd = start + snippet.length;
+      break;
+    }
     case "bold": {
       const fallback = translate("main.formatSample.boldText", { defaultValue: "粗体文本" });
       const wrapped = `**${selected || fallback}**`;
@@ -482,73 +512,7 @@ export function MainWindow({
     }),
     [t],
   );
-  const toolbarButtons = useMemo<
-    { label: string; title: string; style: string; action: FormatAction }[]
-  >(
-    () => [
-      {
-        label: "B",
-        title: t("main.toolbar.bold", { defaultValue: "粗体" }),
-        style: "font-bold",
-        action: "bold",
-      },
-      {
-        label: "I",
-        title: t("main.toolbar.italic", { defaultValue: "斜体" }),
-        style: "italic",
-        action: "italic",
-      },
-      {
-        label: "H",
-        title: t("main.toolbar.heading", { defaultValue: "标题" }),
-        style: "font-bold",
-        action: "heading",
-      },
-      {
-        label: "—",
-        title: t("main.toolbar.hr", { defaultValue: "分割线" }),
-        style: "",
-        action: "hr",
-      },
-      {
-        label: "•",
-        title: t("main.toolbar.ul", { defaultValue: "无序列表" }),
-        style: "",
-        action: "ul",
-      },
-      {
-        label: "1.",
-        title: t("main.toolbar.ol", { defaultValue: "有序列表" }),
-        style: "font-mono text-[9px]",
-        action: "ol",
-      },
-      {
-        label: "<>",
-        title: t("main.toolbar.code", { defaultValue: "代码" }),
-        style: "font-mono text-[9px]",
-        action: "code",
-      },
-      {
-        label: "❝",
-        title: t("main.toolbar.quote", { defaultValue: "引用" }),
-        style: "",
-        action: "quote",
-      },
-      {
-        label: "∑",
-        title: t("main.toolbar.inlineMath", { defaultValue: "行内公式" }),
-        style: "font-mono text-[11px]",
-        action: "inlineMath",
-      },
-      {
-        label: "∫",
-        title: t("main.toolbar.blockMath", { defaultValue: "块级公式" }),
-        style: "font-mono text-[11px]",
-        action: "blockMath",
-      },
-    ],
-    [t],
-  );
+  const toolbarButtons = editorTools;
   const viewModeOptions = useMemo(
     () => [
       {
@@ -3010,13 +2974,69 @@ export function MainWindow({
                       className="flex flex-col min-h-0 shrink-0"
                       style={{ width: viewMode === "split" ? `${splitRatio * 100}%` : "100%" }}
                     >
-                      <div className="editor-toolbar flex items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
+                      <div className="editor-toolbar flex flex-wrap items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
                         {toolbarButtons.map((button) => (
                           <button
                             key={button.label}
                             title={button.title}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
+                            onClick={async () => {
+                              if (button.action === "undo") {
+                                handleUndo();
+                                return;
+                              }
+                              if (button.action === "redo") {
+                                handleRedo();
+                                return;
+                              }
+                              if (button.action === "upload") {
+                                const textarea = contentRef.current;
+                                const noteId = selectedIdRef.current;
+                                const start = textarea?.selectionStart ?? 0;
+                                const end = textarea?.selectionEnd ?? start;
+                                try {
+                                  const paths = await open({
+                                    multiple: true,
+                                    filters: [
+                                      {
+                                        name: "图片",
+                                        extensions: [
+                                          "png",
+                                          "jpg",
+                                          "jpeg",
+                                          "gif",
+                                          "webp",
+                                          "bmp",
+                                          "svg",
+                                        ],
+                                      },
+                                    ],
+                                  });
+                                  if (!paths || !noteId || selectedIdRef.current !== noteId) return;
+                                  const id = await ensureNoteSaved();
+                                  if (!id) return;
+                                  const links = [];
+                                  for (const path of Array.isArray(paths) ? paths : [paths])
+                                    links.push(await saveImageFromPath(id, path));
+                                  if (
+                                    selectedIdRef.current !== noteId ||
+                                    contentRef.current !== textarea ||
+                                    !textarea
+                                  )
+                                    return;
+                                  textarea.focus();
+                                  textarea.setSelectionRange(start, end);
+                                  insertTextAtCursor(
+                                    textarea,
+                                    setContent,
+                                    links.map((path) => `![](${path})`).join("\n") + "\n",
+                                  );
+                                  markDirty();
+                                } catch (error) {
+                                  showToast(getErrorMessage(error));
+                                }
+                                return;
+                              }
                               if (contentRef.current) {
                                 applyFormat(
                                   contentRef.current,
