@@ -33,6 +33,7 @@ import {
   saveConfig,
 } from "../features/settings/api";
 import type { AppConfig, ViewMode } from "../features/settings/types";
+import { applyTheme, watchSystemTheme } from "../features/settings/theme";
 import { normalizeTileColor } from "../features/settings/tileColor";
 import { getUpdateStatus, reportInstallPreparation } from "../features/update/api";
 import {
@@ -1363,6 +1364,31 @@ export function MainWindow({
     [persistSettings],
   );
 
+  const [isDarkTheme, setIsDarkTheme] = useState(
+    () => document.documentElement.dataset.theme === "dark",
+  );
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkTheme(document.documentElement.dataset.theme === "dark");
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => observer.disconnect();
+  }, []);
+  const handleToggleTheme = async () => {
+    try {
+      const config = settingsConfig ?? (await getConfig());
+      const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      watchSystemTheme(theme);
+      applyTheme(theme);
+      handleSettingsChange({ ...config, theme });
+    } catch (error) {
+      showToast(getErrorMessage(error));
+    }
+  };
+
   const handleCloseSettings = useCallback(() => {
     setSettingsOpen(false);
   }, []);
@@ -2019,6 +2045,32 @@ export function MainWindow({
               >
                 <path d="M4 4h16v14H7l-3 3V4z" />
                 <path d="M8 9h8M8 13h5" />
+              </svg>
+            </button>
+            <button
+              onClick={() => void handleToggleTheme()}
+              className="w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
+              title={isDarkTheme ? "切换明亮模式" : "切换暗黑模式"}
+              aria-label={isDarkTheme ? "切换明亮模式" : "切换暗黑模式"}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {isDarkTheme ? (
+                  <>
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+                  </>
+                ) : (
+                  <path d="M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13z" />
+                )}
               </svg>
             </button>
             <button
