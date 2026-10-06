@@ -76,11 +76,18 @@ export function useImagePaste({
   t,
 }: UseImagePasteOptions) {
   const processingRef = useRef(false);
+  const currentNoteId = useRef(noteId);
+  currentNoteId.current = noteId;
 
   const processFiles = useCallback(
     async (files: File[]) => {
       if (processingRef.current || files.length === 0) return;
       processingRef.current = true;
+      const originalId = noteId;
+      const originalTextarea = textareaRef.current;
+      const originalValue = originalTextarea?.value;
+      const start = originalTextarea?.selectionStart ?? 0;
+      const end = originalTextarea?.selectionEnd ?? start;
 
       try {
         let resolvedId = noteId;
@@ -101,6 +108,13 @@ export function useImagePaste({
         }
 
         if (markdownLines.length > 0) {
+          if (currentNoteId.current !== originalId || textareaRef.current !== originalTextarea)
+            return;
+          if (textarea.value !== originalValue) {
+            throw new Error("图片处理期间正文已变化，请重新选择位置插入");
+          }
+          textarea.focus();
+          textarea.setSelectionRange(start, end);
           insertTextAtCursor(textarea, setContent, markdownLines.join("\n"));
           markDirty();
         }

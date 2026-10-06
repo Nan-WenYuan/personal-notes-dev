@@ -48,9 +48,16 @@ export function RichEditor(props: Props) {
       focus: () => instance.current?.focus(),
       insertMarkdown: (value) => {
         instance.current?.insertMD(value);
+        syncInput();
       },
-      undo: () => host.current?.querySelector<HTMLButtonElement>('[data-type="undo"]')?.click(),
-      redo: () => host.current?.querySelector<HTMLButtonElement>('[data-type="redo"]')?.click(),
+      undo: () => {
+        host.current?.querySelector<HTMLButtonElement>('[data-type="undo"]')?.click();
+        syncInput();
+      },
+      redo: () => {
+        host.current?.querySelector<HTMLButtonElement>('[data-type="redo"]')?.click();
+        syncInput();
+      },
     }),
     [],
   );
@@ -245,6 +252,8 @@ export function RichEditor(props: Props) {
         })();
       }}
       onContextMenu={(event) => event.stopPropagation()}
+      onClickCapture={syncInput}
+      onKeyUp={syncInput}
       onInput={(event) => {
         if (!(event.nativeEvent as InputEvent).isComposing) syncInput();
       }}

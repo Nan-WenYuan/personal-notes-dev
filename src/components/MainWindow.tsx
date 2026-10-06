@@ -1,5 +1,7 @@
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
+import { join } from "@tauri-apps/api/path";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
 import {
   useCallback,
@@ -1501,9 +1503,26 @@ export function MainWindow({
     }
   };
 
+  const handleRevealNote = async (note: NoteMetadata) => {
+    try {
+      if (note.id === selectedId && !(await saveCurrentNote())) return;
+      const [currentNote, config] = await Promise.all([getNote(note.id), getConfig()]);
+      const path = await join(config.dataDir, "notes", currentNote.category, currentNote.fileName);
+      await revealItemInDir(path);
+    } catch (error) {
+      showToast(getErrorMessage(error));
+    }
+  };
+
   const handleNoteMenuAction = (action: NoteContextMenuAction) => {
     const note = noteMenuTarget;
     if (!note) return;
+
+    if (action === "reveal") {
+      setNoteMenuClosing(true);
+      void handleRevealNote(note);
+      return;
+    }
 
     if (action === "export") {
       setNoteMenuClosing(true);
@@ -2992,6 +3011,7 @@ export function MainWindow({
                               if (button.action === "upload") {
                                 const textarea = contentRef.current;
                                 const noteId = selectedIdRef.current;
+                                const originalValue = textarea?.value;
                                 const start = textarea?.selectionStart ?? 0;
                                 const end = textarea?.selectionEnd ?? start;
                                 try {
@@ -3025,6 +3045,9 @@ export function MainWindow({
                                   )
                                     return;
                                   textarea.focus();
+                                  if (textarea.value !== originalValue) {
+                                    throw new Error("图片处理期间正文已变化，请重新选择位置插入");
+                                  }
                                   textarea.setSelectionRange(start, end);
                                   insertTextAtCursor(
                                     textarea,
