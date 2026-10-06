@@ -93,11 +93,23 @@
 }
 .rich-editor .vditor-wysiwyg pre.vditor-reset:empty::before {
   color: color-mix(in srgb, var(--color-ink-ghost) 40%, transparent);
+  position: absolute;
+  top: 8px;
+  left: 24px;
+  font: inherit;
+  line-height: inherit;
+  pointer-events: none;
+}
+.rich-editor .vditor-wysiwyg pre.vditor-reset:empty::after {
+  content: "\200b";
+  display: inline;
+  height: auto;
 }
 .rich-editor .vditor-wysiwyg {
   background: transparent;
 }
 .rich-editor .vditor-reset {
+  position: relative;
   padding: 8px 24px 24px !important;
   font-size: inherit !important;
   color: var(--color-ink-soft);
@@ -159,6 +171,26 @@
 .rich-editor .vditor-reset a {
   color: var(--color-bamboo);
 }
+.rich-editor .vditor-reset ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+.rich-editor .vditor-reset ul {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+.rich-editor .vditor-reset ul ul {
+  list-style-type: circle;
+}
+.rich-editor .vditor-reset ul ul ul {
+  list-style-type: square;
+}
+.rich-editor .vditor-reset li::marker {
+  color: var(--color-ink-faint);
+}
+.rich-editor .vditor-reset li.vditor-task {
+  list-style-type: none;
+}
 .rich-editor .vditor-reset blockquote {
   color: var(--color-ink-faint);
   border-color: var(--color-paper-deep);
@@ -176,7 +208,53 @@
 .rich-editor .vditor-reset pre {
   background: var(--color-paper-warm);
 }
+/* A code block shows either its source editor or its highlighted rendering. */
+.rich-editor .vditor-wysiwyg__block[data-type="code-block"] > pre {
+  display: none !important;
+}
+.rich-editor .vditor-wysiwyg__block[data-type="code-block"] > .vditor-wysiwyg__preview {
+  display: block !important;
+}
+.rich-editor .vditor-wysiwyg__block[data-type="code-block"].rich-code-editing > pre {
+  display: block !important;
+  margin-bottom: 1em;
+}
+.rich-editor
+  .vditor-wysiwyg__block[data-type="code-block"].rich-code-editing
+  > .vditor-wysiwyg__preview {
+  display: none !important;
+}
+.rich-editor .vditor-wysiwyg__block[data-type="code-block"] > pre {
+  margin: 1em 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 5px;
+}
+.rich-editor .vditor-wysiwyg__block[data-type="code-block"] > pre > code,
+.rich-editor .vditor-wysiwyg__block[data-type="code-block"] > .vditor-wysiwyg__preview > code {
+  display: block;
+  box-sizing: border-box;
+  padding: 12px 16px !important;
+  min-height: 48px;
+  font-size: 0.85em !important;
+  line-height: 24px !important;
+  background-image: none !important;
+  white-space: pre !important;
+}
 .rich-editor .vditor-reset table td,
 .rich-editor .vditor-reset table th {
   border-color: var(--color-paper-deep);
+  color: var(--color-ink-soft);
+}
+.rich-editor .vditor-reset hr {
+  border: 0;
+  border-top: 1px solid var(--color-paper-deep);
+  background: transparent;
+  margin: 20px 0;
+}
+.rich-editor .vditor-reset :not(pre) > code {
+  color: var(--color-bamboo);
+  background: var(--color-paper-warm);
+  border-radius: 4px;
+  padding: 2px 5px;
 }

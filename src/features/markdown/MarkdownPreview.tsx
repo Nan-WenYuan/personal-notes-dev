@@ -1,4 +1,6 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { highlightCode } from "./codeHighlight";
+import "./codeHighlight.css";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -13,6 +15,29 @@ import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
 import remarkAlerts from "./remarkAlerts";
 import { resolveMarkdownImageSrc } from "./imageSrc";
+
+function HighlightedCode({ text, language }: { text: string; language: string }) {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setHtml(null);
+    void highlightCode(text, language)
+      .then((value) => {
+        if (active) setHtml(value);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [text, language]);
+  return (
+    <code
+      className={`text-[0.85em] font-mono text-ink-soft leading-[1.8] whitespace-pre language-${language || "plaintext"}`}
+    >
+      {html === null ? text : <span dangerouslySetInnerHTML={{ __html: html }} />}
+    </code>
+  );
+}
 
 function CodeBlock({ children, language }: { children: React.ReactNode; language?: string }) {
   const { t } = useTranslation();
@@ -59,6 +84,8 @@ function extractText(node: React.ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
   if (Array.isArray(node)) return node.map(extractText).join("");
   if (typeof node === "object" && "props" in node) {
+    const props = (node as React.ReactElement<{ text?: string }>).props;
+    if (typeof props.text === "string") return props.text;
     return extractText((node as React.ReactElement<{ children?: React.ReactNode }>).props.children);
   }
   return "";
@@ -213,9 +240,10 @@ const staticComponents: Components = {
     const isBlock = className?.startsWith("language-") || String(children).includes("\n");
     if (isBlock) {
       return (
-        <code className="text-[0.85em] font-mono text-ink-soft leading-[1.8] whitespace-pre">
-          {children}
-        </code>
+        <HighlightedCode
+          text={extractText(children)}
+          language={className?.replace("language-", "") ?? ""}
+        />
       );
     }
     return (

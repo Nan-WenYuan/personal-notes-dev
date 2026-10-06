@@ -1,6 +1,6 @@
 import { t, type TFunction } from "i18next";
 
-export type NoteContextMenuAction = "reveal" | "export" | "move" | "delete";
+export type NoteContextMenuAction = "reveal" | "export" | "localize" | "move" | "delete";
 
 export interface NoteContextMenuItem {
   action: NoteContextMenuAction;
@@ -10,6 +10,10 @@ export interface NoteContextMenuItem {
 
 export function getNoteContextMenuItems(translate: TFunction = t): NoteContextMenuItem[] {
   return [
+    {
+      action: "localize",
+      label: translate("noteMenu.localizeImages", { defaultValue: "网络图片转为本地" }),
+    },
     {
       action: "reveal",
       label: translate("noteMenu.reveal", { defaultValue: "在资源管理器中显示" }),

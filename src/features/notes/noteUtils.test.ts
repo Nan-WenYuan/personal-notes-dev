@@ -32,9 +32,18 @@ const notes: NoteMetadata[] = [
 ];
 
 describe("note utilities", () => {
-  it("uses title, preview, then untitled fallback for display title", () => {
+  it("keeps category order stable when folders gain notes or search results change", () => {
+    const categories = ["B", "Agent知识库", "A"];
+    const emptyOrder = groupNotesByCategory([], categories).map((group) => group.category);
+    const populatedOrder = groupNotesByCategory([{ ...notes[0], category: "B" }], categories).map(
+      (group) => group.category,
+    );
+    expect(emptyOrder).toEqual(["B", "Agent知识库", "A"]);
+    expect(populatedOrder).toEqual(emptyOrder);
+  });
+  it("uses only title or untitled fallback for display title", () => {
     expect(getDisplayTitle(notes[0])).toBe("读书笔记");
-    expect(getDisplayTitle(notes[1])).toBe("周末采购清单");
+    expect(getDisplayTitle(notes[1])).toBe("无标题笔记");
     expect(getDisplayTitle({ ...notes[1], preview: "" })).toBe("无标题笔记");
   });
 

@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { createNote, getErrorMessage, getNote, listNotes, updateNote } from "../features/notes/api";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
+import { remapNoteImageLinks } from "../features/images/noteImagePaths";
 import { reportInstallPreparation } from "../features/update/api";
 import type { UpdateInstallPrepareRequest } from "../features/update/types";
 import { showToast } from "./Toast";
@@ -341,6 +342,7 @@ export function NotePad({
 
   const saveNote = useCallback(async () => {
     const existingCategory = notes.find((n) => n.id === editingNoteId)?.category ?? "";
+    const oldFileName = notes.find((n) => n.id === editingNoteId)?.fileName;
     const request = { title, content, category: existingCategory };
     const note = editingNoteId
       ? await updateNote(editingNoteId, request)
@@ -356,6 +358,15 @@ export function NotePad({
       return [...next].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     });
     const contentChanged = contentValueRef.current !== content || titleValueRef.current !== title;
+    const nextContent = contentChanged
+      ? oldFileName
+        ? remapNoteImageLinks(contentValueRef.current, oldFileName, note.fileName)
+        : contentValueRef.current
+      : note.content;
+    if (nextContent !== contentValueRef.current) {
+      contentValueRef.current = nextContent;
+      setContent(nextContent);
+    }
     setStatus(contentChanged ? "dirty" : "saved");
     return note;
   }, [content, editingNoteId, notes, title]);
@@ -408,7 +419,11 @@ export function NotePad({
     [content, editingNoteId, title],
   );
 
-  const imageBaseDir = useImageBaseDir();
+  const imageNote = notes.find((note) => note.id === editingNoteId);
+  const imageBaseDir = useImageBaseDir(
+    editingNoteId,
+    `${imageNote?.category}/${imageNote?.fileName}`,
+  );
 
   const ensureNoteSaved = useCallback(async (): Promise<string | null> => {
     if (editingNoteId) return editingNoteId;

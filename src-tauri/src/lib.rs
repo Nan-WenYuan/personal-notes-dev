@@ -236,17 +236,114 @@ fn images_save_from_path(note_id: String, file_path: String) -> Result<String, A
 }
 
 #[tauri::command]
-fn images_get_base_dir() -> Result<String, AppError> {
-    let store = default_store()?;
-    store
-        .data_dir()
-        .to_str()
-        .map(str::to_string)
-        .ok_or_else(|| AppError {
-            code: "path".into(),
-            message: "invalid data dir path".into(),
+async fn images_save_from_url(note_id: String, url: String) -> Result<String, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Read;
+        let fail = |message: String| AppError {
+            code: "imageDownload".into(),
+            message,
             details: Default::default(),
-        })
+        };
+        let parsed = reqwest::Url::parse(&url).map_err(|_| fail("图片地址无效".into()))?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(fail("仅支持 HTTP/HTTPS 图片".into()));
+        }
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()
+            .map_err(|e| fail(e.to_string()))?;
+        let response = client
+            .get(parsed)
+            .send()
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| fail(e.to_string()))?;
+        const MAX: u64 = 20 * 1024 * 1024;
+        if response.content_length().is_some_and(|size| size > MAX) {
+            return Err(fail("图片超过 20 MB".into()));
+        }
+        let mut bytes = Vec::new();
+        response
+            .take(MAX + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| fail(e.to_string()))?;
+        if bytes.len() as u64 > MAX {
+            return Err(fail("图片超过 20 MB".into()));
+        }
+        let extension = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            "png"
+        } else if bytes.starts_with(b"\xff\xd8\xff") {
+            "jpg"
+        } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+            "gif"
+        } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+            "webp"
+        } else if bytes.starts_with(b"BM") {
+            "bmp"
+        } else if std::str::from_utf8(&bytes).is_ok_and(|text| {
+            text.trim_start().starts_with("<svg")
+                || (text.trim_start().starts_with("<?xml") && text.contains("<svg"))
+        }) {
+            "svg"
+        } else {
+            return Err(fail("下载内容不是支持的图片格式".into()));
+        };
+        default_store()?.save_image(&note_id, &bytes, extension)
+    })
+    .await
+    .map_err(|e| AppError {
+        code: "imageDownload".into(),
+        message: e.to_string(),
+        details: Default::default(),
+    })?
+}
+
+#[tauri::command]
+fn images_get_base_dir(note_id: Option<String>) -> Result<String, AppError> {
+    let store = default_store()?;
+    let base = match note_id {
+        Some(id) => store.image_base_dir(&id)?,
+        None => store.data_dir().join("notes"),
+    };
+    base.to_str().map(str::to_string).ok_or_else(|| AppError {
+        code: "path".into(),
+        message: "invalid data dir path".into(),
+        details: Default::default(),
+    })
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct QuadrantTask {
+    id: String,
+    text: String,
+    quadrant: u8,
+    completed: bool,
+}
+
+#[tauri::command]
+fn quadrants_load() -> Result<Vec<QuadrantTask>, AppError> {
+    let path = default_store()?.data_dir().join("四象限.json");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+#[tauri::command]
+fn categories_save_order(order: Vec<String>) -> Result<(), AppError> {
+    default_store()?.save_category_order(&order)
+}
+
+#[tauri::command]
+fn quadrants_save(tasks: Vec<QuadrantTask>) -> Result<(), AppError> {
+    if tasks.iter().any(|task| task.quadrant > 3) {
+        return Err(AppError {
+            code: "quadrant".into(),
+            message: "无效的任务象限".into(),
+            details: Default::default(),
+        });
+    }
+    crate::json_io::write_json_atomic(&default_store()?.data_dir().join("四象限.json"), &tasks)
 }
 
 #[tauri::command]
@@ -538,6 +635,9 @@ pub fn run() {
         })
         .on_window_event(desktop::handle_window_event)
         .invoke_handler(tauri::generate_handler![
+            categories_save_order,
+            quadrants_load,
+            quadrants_save,
             app_name,
             notes_list,
             notes_get,
@@ -557,6 +657,7 @@ pub fn run() {
             images_save,
             images_clipboard_paths,
             images_save_from_path,
+            images_save_from_url,
             images_get_base_dir,
             images_clean_unused,
             config_get,

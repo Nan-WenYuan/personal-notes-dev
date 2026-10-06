@@ -27,9 +27,9 @@ describe("resolveMarkdownImageSrc", () => {
       resolveMarkdownImageSrc("https://example.com/photo.png", "/notes/note-1", convertFileSrc),
     ).toBe("https://example.com/photo.png");
     expect(resolveMarkdownImageSrc("./photo.png", "/notes/note-1", convertFileSrc)).toBe(
-      "./photo.png",
+      "asset:///notes/note-1/photo.png",
     );
-    expect(convertFileSrc).not.toHaveBeenCalled();
+    expect(convertFileSrc).toHaveBeenCalledWith("/notes/note-1/photo.png");
   });
 
   test("resolves encoded Chinese filenames and spaces without double encoding", () => {

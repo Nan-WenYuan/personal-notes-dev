@@ -12,8 +12,12 @@ export function saveImageFromPath(noteId: string, filePath: string): Promise<str
   return invoke("images_save_from_path", { noteId, filePath });
 }
 
-export function getImagesBaseDir(): Promise<string> {
-  return invoke("images_get_base_dir");
+export function saveImageFromUrl(noteId: string, url: string): Promise<string> {
+  return invoke("images_save_from_url", { noteId, url });
+}
+
+export function getImagesBaseDir(noteId?: string): Promise<string> {
+  return invoke("images_get_base_dir", { noteId });
 }
 
 export function cleanUnusedImages(noteId: string, content: string): Promise<string[]> {

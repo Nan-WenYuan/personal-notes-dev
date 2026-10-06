@@ -339,7 +339,15 @@ fn data_dir_from_notes_dir(notes_dir: &str) -> PathBuf {
     path.to_path_buf()
 }
 
-const DATA_DIR_ITEMS: [&str; 4] = ["metadata.json", "notes", "images", "backgrounds"];
+const DATA_DIR_ITEMS: [&str; 7] = [
+    "metadata.json",
+    "notes",
+    "images",
+    "backgrounds",
+    "四象限.json",
+    ".agent-knowledge-initialized",
+    "分类排序.json",
+];
 
 // 旧版无论 notesDir 指向哪里，metadata.json、images、backgrounds 都固定存放在旧主目录；
 // 数据目录解析到其他位置时必须一并带走，否则笔记内图片引用全部失效、created_at 丢失
@@ -838,6 +846,7 @@ impl NoteStore {
 
     pub fn update_note(&self, id: &str, request: SaveNoteRequest) -> Result<Note, AppError> {
         self.ensure_storage()?;
+        let mut request = request;
         let mut metadata_file = self.load_metadata()?;
         let note = metadata_file
             .notes
@@ -856,6 +865,24 @@ impl NoteStore {
         if let Some(parent) = new_path.parent() {
             fs::create_dir_all(parent)?;
         }
+        let old_images = self
+            .note_path_in_category(&old_file_name, &old_category)
+            .with_extension("");
+        let new_images = new_path.with_extension("");
+        if old_images.exists()
+            && old_images != new_images
+            && !paths_refer_to_same_entry(&old_images, &new_images)
+        {
+            copy_dir_recursive(&old_images, &new_images)?;
+        }
+        request.content = request.content.replace(
+            &format!("images/{id}/"),
+            &Self::image_prefix(&new_file_name),
+        );
+        request.content = request.content.replace(
+            &Self::image_prefix(&old_file_name),
+            &Self::image_prefix(&new_file_name),
+        );
         fs::write(&new_path, &request.content)?;
         let old_path = self.note_path_in_category(&old_file_name, &old_category);
         let replaced_path =
@@ -881,6 +908,13 @@ impl NoteStore {
 
         self.save_metadata(&metadata_file)?;
 
+        if old_images.exists()
+            && old_images != new_images
+            && !paths_refer_to_same_entry(&old_images, &new_images)
+        {
+            let _ = fs::remove_dir_all(&old_images);
+        }
+
         // A title/category change replaces the storage path; it is not a user
         // deletion. The new file and metadata are already durable, so cleanup
         // of the stale copy must not turn a successful save into "保存失败".
@@ -902,18 +936,43 @@ impl NoteStore {
             .iter()
             .position(|note| note.id == id)
             .ok_or_else(|| AppError::note_not_found(id))?;
+        let image_dir = self.images_dir(id);
         let metadata = metadata_file.notes.remove(index);
         let path = self.note_path_in_category(&metadata.file_name, &metadata.category);
         if path.exists() {
             recycle_path(&path)?;
         }
         self.save_metadata(&metadata_file)?;
-        let _ = self.delete_note_images(id);
+        if image_dir.exists() {
+            recycle_path(&image_dir)?;
+        }
         Ok(())
     }
 
     pub fn images_dir(&self, note_id: &str) -> PathBuf {
-        self.data_dir.join("images").join(note_id)
+        self.find_metadata(note_id)
+            .map(|note| {
+                self.note_path_in_category(&note.file_name, &note.category)
+                    .with_extension("")
+            })
+            .unwrap_or_else(|_| self.data_dir.join("images").join(note_id))
+    }
+
+    pub fn image_base_dir(&self, note_id: &str) -> Result<PathBuf, AppError> {
+        self.ensure_storage()?;
+        let note = self.find_metadata(note_id)?;
+        Ok(self
+            .note_path_in_category(&note.file_name, &note.category)
+            .parent()
+            .unwrap()
+            .to_path_buf())
+    }
+
+    fn image_prefix(file_name: &str) -> String {
+        let stem = Path::new(file_name).file_stem().unwrap().to_string_lossy();
+        let mut url = reqwest::Url::parse("https://local.invalid/").unwrap();
+        url.set_path(&format!("{stem}/"));
+        url.path().trim_start_matches('/').to_string()
     }
 
     pub fn save_image(
@@ -923,7 +982,7 @@ impl NoteStore {
         extension: &str,
     ) -> Result<String, AppError> {
         self.ensure_storage()?;
-        self.find_metadata(note_id)?;
+        let note = self.find_metadata(note_id)?;
 
         const ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
         let ext = extension.to_ascii_lowercase();
@@ -940,7 +999,10 @@ impl NoteStore {
         let file_name = format!("{}.{}", Uuid::new_v4(), ext);
         fs::write(dir.join(&file_name), data)?;
 
-        Ok(format!("images/{note_id}/{file_name}"))
+        Ok(format!(
+            "{}{file_name}",
+            Self::image_prefix(&note.file_name)
+        ))
     }
 
     pub fn delete_note_images(&self, note_id: &str) -> Result<(), AppError> {
@@ -970,7 +1032,8 @@ impl NoteStore {
                 continue;
             }
             let file_name = entry.file_name().to_string_lossy().to_string();
-            let relative = format!("images/{note_id}/{file_name}");
+            let note = self.find_metadata(note_id)?;
+            let relative = format!("{}{file_name}", Self::image_prefix(&note.file_name));
             if !content.contains(&relative) {
                 fs::remove_file(&path)?;
                 removed.push(file_name);
@@ -1015,12 +1078,35 @@ impl NoteStore {
         let mut categories = Vec::new();
         for entry in fs::read_dir(&notes_dir)? {
             let entry = entry?;
-            if entry.path().is_dir() {
+            let sibling_note =
+                notes_dir.join(format!("{}.md", entry.file_name().to_string_lossy()));
+            if entry.path().is_dir() && !sibling_note.is_file() {
                 categories.push(entry.file_name().to_string_lossy().to_string());
             }
         }
-        categories.sort();
+        let order: Vec<String> = if self.data_dir.join("分类排序.json").exists() {
+            serde_json::from_str(&fs::read_to_string(self.data_dir.join("分类排序.json"))?)?
+        } else {
+            vec!["Agent知识库".into()]
+        };
+        categories.sort_by(|a, b| {
+            order
+                .iter()
+                .position(|item| item == a)
+                .unwrap_or(usize::MAX)
+                .cmp(
+                    &order
+                        .iter()
+                        .position(|item| item == b)
+                        .unwrap_or(usize::MAX),
+                )
+                .then_with(|| a.cmp(b))
+        });
         Ok(categories)
+    }
+
+    pub fn save_category_order(&self, order: &[String]) -> Result<(), AppError> {
+        write_json_atomic(&self.data_dir.join("分类排序.json"), &order)
     }
 
     pub fn create_category(&self, name: &str) -> Result<(), AppError> {
@@ -1060,6 +1146,17 @@ impl NoteStore {
         }
         fs::rename(&old_path, &new_path)?;
 
+        let order_path = self.data_dir.join("分类排序.json");
+        if order_path.exists() {
+            let mut order: Vec<String> = serde_json::from_str(&fs::read_to_string(order_path)?)?;
+            for category in &mut order {
+                if category == old_name {
+                    *category = new_name.to_string();
+                }
+            }
+            self.save_category_order(&order)?;
+        }
+
         let mut metadata_file = self.load_metadata()?;
         for note in &mut metadata_file.notes {
             if note.category == old_name {
@@ -1071,6 +1168,7 @@ impl NoteStore {
     }
 
     pub fn delete_category(&self, name: &str) -> Result<(), AppError> {
+        self.ensure_storage()?;
         let notes_dir = self.notes_dir();
         let category_path = notes_dir.join(name);
         let dir_exists = category_path.exists();
@@ -1098,6 +1196,10 @@ impl NoteStore {
                     let new_path = notes_dir.join(&note.file_name);
                     if old_path.exists() {
                         fs::rename(&old_path, &new_path)?;
+                    }
+                    let images = old_path.with_extension("");
+                    if images.exists() {
+                        move_or_copy_dir(&images, &new_path.with_extension(""))?;
                     }
                     note.category = String::new();
                 }
@@ -1149,6 +1251,11 @@ impl NoteStore {
         }
         if old_path.exists() {
             fs::rename(&old_path, &new_path)?;
+        }
+
+        let images = old_path.with_extension("");
+        if images.exists() {
+            move_or_copy_dir(&images, &new_path.with_extension(""))?;
         }
 
         note.category = new_category.to_string();
@@ -1317,6 +1424,11 @@ impl NoteStore {
         self.ensure_data_dir()?;
         let _config = self.load_config()?;
         fs::create_dir_all(self.notes_dir())?;
+        let agent_marker = self.data_dir.join(".agent-knowledge-initialized");
+        if !agent_marker.exists() {
+            fs::create_dir_all(self.notes_dir().join("Agent知识库"))?;
+            fs::write(agent_marker, b"1")?;
+        }
         if !self.metadata_path().exists() {
             let metadata = self.rebuild_metadata()?;
             self.save_metadata(&metadata)?;
@@ -1327,6 +1439,24 @@ impl NoteStore {
                 self.save_metadata(&rebuilt)?;
             }
         }
+        // Copy assets first, rewrite the durable note, then remove the legacy copy.
+        for note in self.load_metadata()?.notes {
+            let legacy = self.data_dir.join("images").join(&note.id);
+            let path = self.note_path_in_category(&note.file_name, &note.category);
+            if legacy.is_dir() && path.is_file() {
+                copy_dir_recursive(&legacy, &path.with_extension(""))?;
+                let content = fs::read_to_string(&path)?;
+                let updated = content.replace(
+                    &format!("images/{}/", note.id),
+                    &Self::image_prefix(&note.file_name),
+                );
+                if updated != content {
+                    fs::write(&path, updated)?;
+                }
+                fs::remove_dir_all(&legacy)?;
+            }
+        }
+        let _ = fs::remove_dir(self.data_dir.join("images"));
         Ok(())
     }
 
@@ -1833,6 +1963,66 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     #[test]
+    fn category_order_survives_store_reopen() {
+        let store = test_store("category-order");
+        store.create_category("A").unwrap();
+        store.create_category("B").unwrap();
+        store
+            .save_category_order(&["B".into(), "A".into()])
+            .unwrap();
+        let reopened = NoteStore::new(store.data_dir.clone(), store.data_dir.clone());
+        assert_eq!(reopened.list_categories().unwrap(), vec!["B", "A"]);
+        fs::remove_dir_all(store.data_dir()).unwrap();
+    }
+
+    #[test]
+    fn adjacent_images_follow_note_rename_move_and_legacy_migration() {
+        let store = test_store("adjacent-images");
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "中文 空格".into(),
+                content: String::new(),
+                category: String::new(),
+            })
+            .unwrap();
+        assert!(!store.images_dir(&note.id).exists());
+        let image = store.save_image(&note.id, b"image", "png").unwrap();
+        assert!(!image.starts_with("images/"));
+        assert!(store.images_dir(&note.id).is_dir());
+        assert_eq!(store.list_categories().unwrap(), vec!["Agent知识库"]);
+        let renamed = store
+            .update_note(
+                &note.id,
+                SaveNoteRequest {
+                    title: "新名字".into(),
+                    content: format!("![]({image})"),
+                    category: "分类".into(),
+                },
+            )
+            .unwrap();
+        assert!(renamed
+            .content
+            .contains(&NoteStore::image_prefix(&renamed.file_name)));
+        assert!(store.images_dir(&note.id).is_dir());
+        store.move_note_to_category(&note.id, "").unwrap();
+        assert!(store.images_dir(&note.id).is_dir());
+        let legacy = store.data_dir.join("images").join(&note.id);
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("legacy.png"), b"legacy").unwrap();
+        let current = store.find_metadata(&note.id).unwrap();
+        let path = store.note_path_in_category(&current.file_name, &current.category);
+        fs::write(&path, format!("![](images/{}/legacy.png)", note.id)).unwrap();
+        let migrated = store.read_note(&note.id).unwrap();
+        assert!(!migrated.content.contains("images/"));
+        assert_eq!(
+            fs::read(store.images_dir(&note.id).join("legacy.png")).unwrap(),
+            b"legacy"
+        );
+        assert!(!legacy.exists());
+        fs::remove_dir_all(store.data_dir()).unwrap();
+    }
+
+    #[test]
     fn untitled_names_include_label_and_legacy_names_preserve_content() {
         let root = test_root("无标题 文件名");
         let store = NoteStore::new(root.join("配置"), root.join("数据"));
@@ -1896,7 +2086,12 @@ mod tests {
             .save_image(&note.id, b"test-image", "png")
             .expect("save image");
         assert_eq!(
-            fs::read(store.data_dir().join(image)).expect("read image"),
+            fs::read(
+                store
+                    .images_dir(&note.id)
+                    .join(image.rsplit('/').next().unwrap())
+            )
+            .expect("read image"),
             b"test-image"
         );
         fs::remove_dir_all(root).expect("clean test files");

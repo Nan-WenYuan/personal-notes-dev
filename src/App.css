@@ -505,6 +505,12 @@ input::placeholder {
 }
 .category-body > .category-body-inner {
   overflow: hidden;
+  min-height: 0;
+}
+.category-body:not(.expanded) > .category-body-inner {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-width: 0;
 }
 
 /* Delete confirm inline pop */
@@ -750,4 +756,67 @@ input::placeholder {
 }
 :root[data-theme="dark"] .markdown-alert-caution .markdown-alert-title {
   color: #e87462;
+}
+
+.quadrant-entry-ink {
+  color: #0e7490;
+}
+[data-theme="dark"] .quadrant-entry-ink {
+  color: #67e8f9;
+}
+
+.agent-knowledge-category > .group\/cat {
+  background: rgb(202 139 65 / 12%) !important;
+  border-color: rgb(202 139 65 / 30%) !important;
+}
+.agent-knowledge-category > .group\/cat svg,
+.agent-knowledge-category > .group\/cat span {
+  color: #b9772f;
+}
+.agent-knowledge-category .category-body-inner {
+  border-color: rgb(202 139 65 / 22%) !important;
+  background: rgb(202 139 65 / 4%) !important;
+}
+[data-theme="dark"] .agent-knowledge-category > .group\/cat svg,
+[data-theme="dark"] .agent-knowledge-category > .group\/cat span {
+  color: #e4b474;
+}
+
+[data-note-id] {
+  border: 1px solid color-mix(in srgb, var(--color-paper-deep) 65%, transparent);
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+[data-note-id]:hover {
+  border-color: color-mix(in srgb, var(--color-bamboo) 30%, var(--color-paper-deep));
+}
+
+/* A cleared selection must not leave a fading border on the previous card. */
+[data-note-id] {
+  transition: none;
+}
+[data-note-id] > .absolute,
+[data-note-id] .font-display {
+  transition: none;
+}
+
+[data-note-id][data-multi-selected="true"] {
+  background: rgb(85 147 180 / 25%) !important;
+  border-color: rgb(85 147 180 / 65%) !important;
+}
+
+[data-note-id]:focus {
+  outline: none;
+}
+[data-note-id][data-multi-selected="true"] .font-display {
+  color: var(--color-ink) !important;
+}
+
+[data-external-note],
+[data-external-note] > .absolute {
+  transition: none;
+}
+[data-note-drop-category] > .group\/cat,
+.category-body-inner {
+  transition-property: none;
 }

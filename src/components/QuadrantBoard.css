@@ -1,0 +1,107 @@
+.quadrant-board {
+  font-family: var(--font-body);
+}
+.quadrant-board > header {
+  padding: 20px 28px 16px;
+  border-bottom: 0;
+}
+.quadrant-board h1 {
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 600;
+}
+.quadrant-grid {
+  padding: 4px 24px 24px;
+  gap: 16px;
+}
+.quadrant-card {
+  border: 1px solid color-mix(in srgb, var(--quadrant-color) 16%, var(--color-paper-deep));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--quadrant-color) 5%, var(--color-paper));
+  min-height: 220px;
+}
+.quadrant-card > header {
+  border: 0 !important;
+  padding: 17px 18px 11px;
+}
+.quadrant-card h2 {
+  color: var(--quadrant-color);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+.quadrant-card > header p {
+  display: none;
+}
+.quadrant-card > header > span {
+  color: var(--quadrant-color);
+  background: color-mix(in srgb, var(--quadrant-color) 10%, transparent);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+.quadrant-tasks {
+  overflow: auto;
+  min-height: 0;
+  padding: 0 12px 12px;
+}
+.quadrant-card form {
+  order: -1;
+  margin: 0 14px 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--quadrant-color) 15%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-paper) 80%, transparent);
+}
+.quadrant-card > header {
+  order: -2;
+}
+.quadrant-card form:focus-within {
+  border-color: var(--quadrant-color);
+}
+.quadrant-card form input {
+  font-size: 12px;
+}
+.quadrant-card form button {
+  color: var(--quadrant-color);
+  font-size: 18px;
+  line-height: 18px;
+  width: 22px;
+}
+.quadrant-tasks > div {
+  padding: 9px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--quadrant-color) 9%, transparent);
+  border-radius: 5px;
+  align-items: center;
+}
+.quadrant-tasks input[type="checkbox"] {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin: 0;
+  border: 1.5px solid var(--quadrant-color);
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+}
+.quadrant-tasks input[type="checkbox"]:checked {
+  background: var(--quadrant-color);
+}
+.quadrant-tasks input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: white;
+  font-size: 10px;
+}
+.quadrant-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--color-ink-ghost);
+  font-size: 12px;
+  opacity: 0.65;
+}
+[data-theme="dark"] .quadrant-card {
+  background: color-mix(in srgb, var(--quadrant-color) 7%, var(--color-paper));
+}

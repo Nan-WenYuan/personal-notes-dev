@@ -8,6 +8,7 @@ import { createRichToolbar } from "./toolbarAppearance";
 import { captureInsertionPosition, restoreInsertionPosition } from "./insertionPosition";
 import "vditor/dist/index.css";
 import "./richEditor.css";
+import "./codeHighlight.css";
 
 export interface RichEditorHandle {
   focus(): void;
@@ -92,7 +93,7 @@ export function RichEditor(props: Props) {
           toolbar
             .querySelectorAll('[data-type="up"], [data-type="down"], [data-type="remove"]')
             .forEach((button) => button.remove());
-          if (type === "heading") toolbar.replaceChildren();
+          if (type === "heading" || type === "code-block") toolbar.replaceChildren();
         },
         preview: {
           maxWidth: 10000,
@@ -101,9 +102,9 @@ export function RichEditor(props: Props) {
             linkBase: props.imageBaseDir
               ? convertFileSrc(props.imageBaseDir.replace(/\\/g, "/") + "/")
               : "",
-            codeBlockPreview: false,
+            codeBlockPreview: true,
           },
-          hljs: { enable: false },
+          hljs: { enable: true, style: "github", lineNumber: false },
         },
         link: {
           isOpen: false,
@@ -192,6 +193,49 @@ export function RichEditor(props: Props) {
       }
     });
   };
+  const convertTaskShorthand = () => {
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+    const paragraph = element?.closest("p");
+    if (
+      !paragraph ||
+      !host.current?.contains(paragraph) ||
+      paragraph.closest('li, blockquote, [data-type="code-block"]')
+    )
+      return;
+    // Only a paragraph prefix is a shortcut; code and inline occurrences stay literal.
+    const first = paragraph.firstChild;
+    if (
+      first?.nodeType !== Node.TEXT_NODE ||
+      !/^(?:\[\]|【】)(?:[ \t\u200b]|$)/.test(first.textContent ?? "")
+    )
+      return;
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || !range.collapsed) return;
+    first.textContent = first.textContent!.replace(/^(?:\[\]|【】)[ \t\u200b]*/, "");
+    const caret = document.createRange();
+    caret.selectNodeContents(paragraph);
+    caret.collapse(false);
+    selection!.removeAllRanges();
+    selection!.addRange(caret);
+    host.current?.querySelector<HTMLButtonElement>('[data-type="check"]')?.click();
+    syncInput();
+  };
+  useEffect(() => {
+    const updateActiveCode = () => {
+      const node = window.getSelection()?.anchorNode;
+      const element = node instanceof Element ? node : node?.parentElement;
+      const active = element?.closest('.vditor-wysiwyg__block[data-type="code-block"]');
+      host.current
+        ?.querySelectorAll('.vditor-wysiwyg__block[data-type="code-block"]')
+        .forEach((block) => {
+          block.classList.toggle("rich-code-editing", block === active);
+        });
+    };
+    document.addEventListener("selectionchange", updateActiveCode);
+    return () => document.removeEventListener("selectionchange", updateActiveCode);
+  }, [ready]);
   return (
     <div
       className="rich-editor flex-1 min-h-0 min-w-0"
@@ -259,7 +303,10 @@ export function RichEditor(props: Props) {
       }}
       onContextMenu={(event) => event.stopPropagation()}
       onClickCapture={syncInput}
-      onKeyUp={syncInput}
+      onKeyUpCapture={() => {
+        queueMicrotask(convertTaskShorthand);
+        syncInput();
+      }}
       onKeyDownCapture={(event) => {
         // Disable whole-block shortcuts while retaining ordinary cut/delete/undo.
         if (
@@ -273,9 +320,15 @@ export function RichEditor(props: Props) {
         }
       }}
       onInput={(event) => {
-        if (!(event.nativeEvent as InputEvent).isComposing) syncInput();
+        if (!(event.nativeEvent as InputEvent).isComposing) {
+          convertTaskShorthand();
+          syncInput();
+        }
       }}
-      onCompositionEnd={syncInput}
+      onCompositionEnd={() => {
+        convertTaskShorthand();
+        syncInput();
+      }}
     >
       <div ref={host} className="h-full" />
       {!ready && <span className="text-ink-ghost text-xs">正在加载编辑器……</span>}

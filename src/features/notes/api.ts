@@ -51,6 +51,10 @@ export function listCategories(): Promise<string[]> {
   return invoke("categories_list");
 }
 
+export function saveCategoryOrder(order: string[]): Promise<void> {
+  return invoke("categories_save_order", { order });
+}
+
 export function createCategory(name: string): Promise<void> {
   return invoke("categories_create", { name });
 }

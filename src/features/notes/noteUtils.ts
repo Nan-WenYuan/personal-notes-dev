@@ -8,9 +8,6 @@ export function getDisplayTitle(
   const title = note.title.trim();
   if (title) return title;
 
-  const preview = note.preview.trim();
-  if (preview) return preview.slice(0, 20);
-
   return translate("common.untitledNote", { defaultValue: "无标题笔记" });
 }
 
@@ -78,10 +75,12 @@ export function groupNotesByCategory(
   result.sort((a, b) => {
     if (!a.category) return 1;
     if (!b.category) return -1;
-    const aEmpty = a.notes.length === 0;
-    const bEmpty = b.notes.length === 0;
-    if (aEmpty && !bEmpty) return -1;
-    if (!aEmpty && bEmpty) return 1;
+    const rank = (category: string) => {
+      const index = allCategories.indexOf(category);
+      return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+    };
+    const order = rank(a.category) - rank(b.category);
+    if (order) return order;
     return a.category.localeCompare(b.category);
   });
   return result;
@@ -108,5 +107,5 @@ export function formatShortDate(value: string): string {
 export function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--:--";
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
 }

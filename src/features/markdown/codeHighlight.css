@@ -1,0 +1,41 @@
+:root {
+  --code-keyword: #8356a2;
+  --code-string: #437952;
+  --code-number: #a36936;
+  --code-title: #37768c;
+  --code-comment: #8a8b7c;
+}
+[data-theme="dark"] {
+  --code-keyword: #c6a4e0;
+  --code-string: #a5c893;
+  --code-number: #e0b480;
+  --code-title: #8fc5d4;
+  --code-comment: #959a89;
+}
+:is(.rich-editor, .markdown-code-block)
+  :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-built_in) {
+  color: var(--code-keyword) !important;
+}
+:is(.rich-editor, .markdown-code-block) :is(.hljs-string, .hljs-regexp, .hljs-attr) {
+  color: var(--code-string) !important;
+}
+:is(.rich-editor, .markdown-code-block) :is(.hljs-number, .hljs-symbol) {
+  color: var(--code-number) !important;
+}
+:is(.rich-editor, .markdown-code-block) :is(.hljs-title, .hljs-type, .hljs-name) {
+  color: var(--code-title) !important;
+}
+:is(.rich-editor, .markdown-code-block) :is(.hljs-comment, .hljs-quote) {
+  color: var(--code-comment) !important;
+}
+.rich-editor .vditor-wysiwyg__preview pre,
+.rich-editor .hljs {
+  background: var(--color-paper-warm) !important;
+  color: var(--color-ink-soft) !important;
+}
+.rich-editor .vditor-wysiwyg__preview {
+  border-color: var(--color-paper-deep) !important;
+}
+.markdown-selectable li:has(> input[type="checkbox"]) {
+  list-style-type: none;
+}

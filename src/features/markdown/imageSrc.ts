@@ -1,7 +1,5 @@
 export type FileSrcConverter = (path: string) => string;
 
-const NOTE_IMAGE_PREFIX = "images/";
-
 export function resolveMarkdownImageSrc(
   src: string | undefined,
   imageBaseDir: string | undefined,
@@ -12,7 +10,7 @@ export function resolveMarkdownImageSrc(
   }
 
   const normalizedSrc = src.replace(/\\/g, "/").replace(/^\.\//, "");
-  if (!imageBaseDir || !normalizedSrc.startsWith(NOTE_IMAGE_PREFIX)) {
+  if (!imageBaseDir || /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(normalizedSrc)) {
     return src;
   }
 

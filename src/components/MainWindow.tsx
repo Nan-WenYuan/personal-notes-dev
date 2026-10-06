@@ -1,3 +1,5 @@
+import { useNoteCategoryDrag } from "../features/notes/useNoteCategoryDrag";
+import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
 import { join } from "@tauri-apps/api/path";
@@ -71,7 +73,10 @@ import {
   saveExternalFile,
   updateNote,
 } from "../features/notes/api";
-import { cleanUnusedImages, saveImageFromPath } from "../features/images/api";
+import { cleanUnusedImages, saveImageFromPath, saveImageFromUrl } from "../features/images/api";
+import { remoteImageUrls, replaceRemoteImages } from "../features/images/localizeMarkdown";
+import { remapNoteImageLinks } from "../features/images/noteImagePaths";
+import { QuadrantBoard } from "./QuadrantBoard";
 import { useImagePaste, insertTextAtCursor } from "../features/images/useImagePaste";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
 import type { ExternalFile, Note, NoteMetadata } from "../features/notes/types";
@@ -384,12 +389,37 @@ export function MainWindow({
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
   const [externalFiles, setExternalFiles] = useState<ExternalFile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const selectionAnchor = useRef<string | null>(null);
+  const modifierPointerSelection = useRef(false);
+  const heldSelectionKeys = useRef({ shift: false, ctrl: false });
+  useEffect(() => {
+    const update = (event: KeyboardEvent) => {
+      heldSelectionKeys.current = { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey };
+    };
+    const reset = () => {
+      heldSelectionKeys.current = { shift: false, ctrl: false };
+    };
+    document.addEventListener("keydown", update, true);
+    document.addEventListener("keyup", update, true);
+    window.addEventListener("blur", reset);
+    return () => {
+      document.removeEventListener("keydown", update, true);
+      document.removeEventListener("keyup", update, true);
+      window.removeEventListener("blur", reset);
+    };
+  }, []);
+  const [batchDelete, setBatchDelete] = useState<string[] | null>(null);
+  const [renameNote, setRenameNote] = useState<{ id: string; title: string } | null>(null);
+  const [noteActionBusy, setNoteActionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(
     normalizeViewMode(initialConfig?.defaultViewMode ?? "wysiwyg"),
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [content, setContent] = useState("");
+  const [quadrantsOpen, setQuadrantsOpen] = useState(false);
+  const localizingImages = useRef(false);
   const [title, setTitle] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -414,6 +444,9 @@ export function MainWindow({
   const [deleteExiting, setDeleteExiting] = useState(false);
   const [pinnedTileIds, setPinnedTileIds] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<string[]>([]);
+  const [categorySortTarget, setCategorySortTarget] = useState<string | null>(null);
+  const categorySortQueue = useRef(Promise.resolve());
+  const movingNotes = useRef(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [showCategoryInput, setShowCategoryInput] = useState(false);
@@ -457,7 +490,11 @@ export function MainWindow({
   const prevSelectedIdRef = useRef(selectedId);
   const externalFileMtimeRef = useRef<number>(0);
   const lastExternalSaveRef = useRef<number>(0);
-  const imageBaseDir = useImageBaseDir();
+  const imageNote = notes.find((note) => note.id === selectedId);
+  const imageBaseDir = useImageBaseDir(
+    selectedId && !selectedId.startsWith("external:") ? selectedId : undefined,
+    `${imageNote?.category}/${imageNote?.fileName}`,
+  );
   const saveStateRef = useRef(saveState);
   const isMacOS = useMemo(() => {
     return (
@@ -474,6 +511,62 @@ export function MainWindow({
   titleValueRef.current = title;
   const notesRef = useRef(notes);
   notesRef.current = notes;
+  const resetNoteSelection = useCallback(() => {
+    const id = selectedIdRef.current;
+    const current = id && notesRef.current.some((note) => note.id === id) ? id : null;
+    setSelectedNoteIds(new Set(current ? [current] : []));
+    selectionAnchor.current = current;
+    modifierPointerSelection.current = false;
+    heldSelectionKeys.current = { shift: false, ctrl: false };
+    setHoveredId(null);
+    setDragOverCategory(null);
+    setCategorySortTarget(null);
+    setNoteMenu(null);
+    setCategoryMenu(null);
+    setNoteMenuMode("main");
+    setCategoryMenuConfirmDelete(false);
+  }, []);
+  useEffect(() => {
+    const pointer = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        target.closest('[data-note-id], [role="dialog"]') ||
+        noteMenuRef.current?.contains(target)
+      )
+        return;
+      resetNoteSelection();
+    };
+    const visibility = () => {
+      if (document.hidden) resetNoteSelection();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !(event.target as HTMLElement).closest('[role="dialog"]'))
+        resetNoteSelection();
+    };
+    window.addEventListener("blur", resetNoteSelection);
+    document.addEventListener("visibilitychange", visibility);
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("keydown", escape, true);
+    const unlisten = getCurrentWindow().onFocusChanged((event) => {
+      if (!event.payload) resetNoteSelection();
+    });
+    return () => {
+      window.removeEventListener("blur", resetNoteSelection);
+      document.removeEventListener("visibilitychange", visibility);
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("keydown", escape, true);
+      void unlisten.then((fn) => fn());
+    };
+  }, [resetNoteSelection, noteMenuRef]);
+  useEffect(() => {
+    const ids = new Set(notes.map((note) => note.id));
+    setSelectedNoteIds((current) => {
+      if ([...current].every((id) => ids.has(id))) return current;
+      return new Set([...current].filter((id) => ids.has(id)));
+    });
+    if (selectionAnchor.current && !ids.has(selectionAnchor.current))
+      selectionAnchor.current = null;
+  }, [notes]);
   const externalFilesRef = useRef(externalFiles);
   externalFilesRef.current = externalFiles;
   // 每次"应用/切换当前笔记"都会自增；异步加载完成后若 epoch 已变化，说明用户
@@ -488,6 +581,24 @@ export function MainWindow({
   );
   const selectedNoteRef = useRef(selectedNote);
   selectedNoteRef.current = selectedNote;
+  const selectedCategory = selectedNote?.category;
+  useEffect(() => {
+    if (selectedCategory) {
+      setCollapsedCategories((current) => {
+        if (!current.has(selectedCategory)) return current;
+        const next = new Set(current);
+        next.delete(selectedCategory);
+        return next;
+      });
+    }
+    if (!selectedId) return;
+    const timer = setTimeout(() => {
+      document
+        .querySelector(`[data-note-id="${CSS.escape(selectedId)}"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [selectedId, selectedCategory]);
 
   const selectedExternalFile = useMemo(
     () => externalFiles.find((f) => f.id === selectedId) ?? null,
@@ -553,6 +664,13 @@ export function MainWindow({
   }, []);
 
   const filteredNotes = useMemo(() => filterNotes(notes, searchQuery), [notes, searchQuery]);
+  useEffect(() => {
+    setSelectedNoteIds(new Set());
+    selectionAnchor.current = null;
+    setHoveredId(null);
+    setNoteMenu(null);
+    setCategoryMenu(null);
+  }, [searchQuery]);
 
   const categoryGroups = useMemo(
     () => groupNotesByCategory(filteredNotes, categories),
@@ -572,6 +690,11 @@ export function MainWindow({
 
   const applyNote = useCallback(
     (note: Note) => {
+      setHoveredId(null);
+      setQuadrantsOpen(false);
+      setActiveCategory(note.category);
+      setSelectedNoteIds((current) => (current.size ? current : new Set([note.id])));
+      if (!selectionAnchor.current) selectionAnchor.current = note.id;
       // 立刻同步各 ref，保证保存快照与守卫在下一次渲染前就能读到最新值
       loadEpoch.bump();
       selectedIdRef.current = note.id;
@@ -618,6 +741,8 @@ export function MainWindow({
   }, []);
 
   const clearCurrentNote = useCallback(() => {
+    setSelectedNoteIds(new Set());
+    selectionAnchor.current = null;
     loadEpoch.bump();
     selectedIdRef.current = null;
     titleValueRef.current = "";
@@ -1121,6 +1246,7 @@ export function MainWindow({
           settleSaveState(contentValueRef.current === contentSnapshot ? "saved" : "dirty");
         } else {
           const category = notesRef.current.find((note) => note.id === id)?.category ?? "";
+          const oldFileName = notesRef.current.find((note) => note.id === id)?.fileName;
           const note = await updateNote(id, {
             title: titleSnapshot,
             content: contentSnapshot,
@@ -1129,6 +1255,16 @@ export function MainWindow({
           replaceNoteMetadata(note);
           const contentChanged =
             contentValueRef.current !== contentSnapshot || titleValueRef.current !== titleSnapshot;
+          if (stillCurrent()) {
+            const next =
+              contentChanged && oldFileName
+                ? remapNoteImageLinks(contentValueRef.current, oldFileName, note.fileName)
+                : note.content;
+            if (next !== contentValueRef.current) {
+              contentValueRef.current = next;
+              setContent(next);
+            }
+          }
           settleSaveState(contentChanged ? "dirty" : "saved");
         }
         return true;
@@ -1232,6 +1368,9 @@ export function MainWindow({
     await saveCurrentNote();
     try {
       const note = await createNote({ title: "", content: "", category: activeCategory });
+      setHoveredId(null);
+      setSelectedNoteIds(new Set([note.id]));
+      selectionAnchor.current = note.id;
       replaceNoteMetadata(note);
       applyNote(note);
     } catch (error) {
@@ -1405,7 +1544,40 @@ export function MainWindow({
     }
   };
 
+  const handleNoteSelection = (event: MouseEvent<HTMLElement>, id: string) => {
+    if (consumeDragClick()) return;
+    event.currentTarget.focus();
+    const toggle = event.ctrlKey || event.metaKey || heldSelectionKeys.current.ctrl;
+    if (event.shiftKey || heldSelectionKeys.current.shift) {
+      const visible = Array.from(document.querySelectorAll<HTMLElement>("[data-note-id]"))
+        .filter((card) => !card.closest(".category-body:not(.expanded)"))
+        .map((card) => card.dataset.noteId!);
+      const start = visible.indexOf(selectionAnchor.current ?? selectedId ?? id);
+      const end = visible.indexOf(id);
+      const range =
+        start < 0 || end < 0 ? [id] : visible.slice(Math.min(start, end), Math.max(start, end) + 1);
+      setSelectedNoteIds((current) => new Set([...(toggle ? current : []), ...range]));
+      return;
+    }
+    selectionAnchor.current = id;
+    if (toggle) {
+      setSelectedNoteIds((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      return;
+    }
+    setSelectedNoteIds(new Set([id]));
+    void handleSelectNote(id);
+  };
+
   const handleSelectExternalFile = async (id: string) => {
+    setSelectedNoteIds(new Set());
+    selectionAnchor.current = null;
+    setQuadrantsOpen(false);
+    setActiveCategory("");
     if (id === selectedId) return;
     setDeleteConfirm(false);
     await saveCurrentNote();
@@ -1474,9 +1646,66 @@ export function MainWindow({
     }
   };
 
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        target.closest('input, textarea, [contenteditable="true"], [role="dialog"]') ||
+        batchDelete ||
+        renameNote ||
+        noteActionBusy
+      )
+        return;
+      if (event.key !== "Delete") return;
+      const ids = [...selectedNoteIds].filter((id) => notes.some((note) => note.id === id));
+      if (!ids.length) return;
+      event.preventDefault();
+      setBatchDelete(ids);
+    };
+    document.addEventListener("keydown", keydown, true);
+    return () => document.removeEventListener("keydown", keydown, true);
+  }, [selectedNoteIds, notes, batchDelete, renameNote, noteActionBusy]);
+
+  const confirmNoteAction = async () => {
+    if (noteActionBusy) return;
+    setNoteActionBusy(true);
+    try {
+      if (!(await saveCurrentNote())) return;
+      if (batchDelete) {
+        for (const id of batchDelete) await deleteNote(id);
+        const remaining = await refreshNotes();
+        if (selectedId && batchDelete.includes(selectedId)) {
+          if (remaining[0]) await loadNote(remaining[0].id);
+          else clearCurrentNote();
+        }
+        setSelectedNoteIds(new Set());
+        setBatchDelete(null);
+      } else if (renameNote) {
+        const current = await getNote(renameNote.id);
+        const updated = await updateNote(current.id, {
+          title: renameNote.title,
+          content: current.content,
+          category: current.category,
+        });
+        replaceNoteMetadata(updated);
+        if (selectedIdRef.current === updated.id) applyNote(updated);
+        setRenameNote(null);
+      }
+    } catch (error) {
+      showToast(getErrorMessage(error));
+      await refreshNotes();
+    } finally {
+      setNoteActionBusy(false);
+    }
+  };
+
   const handleOpenNoteMenu = (event: MouseEvent<HTMLElement>, noteId: string) => {
     event.preventDefault();
     event.stopPropagation();
+    if (!selectedNoteIds.has(noteId)) {
+      setSelectedNoteIds(new Set([noteId]));
+      selectionAnchor.current = noteId;
+    }
 
     setNoteMenuClosing(false);
     setHoveredId(noteId);
@@ -1503,6 +1732,58 @@ export function MainWindow({
     }
   };
 
+  const handleLocalizeImages = async (note: NoteMetadata) => {
+    if (localizingImages.current) {
+      showToast("正在转换图片，请稍候", "info");
+      return;
+    }
+    localizingImages.current = true;
+    try {
+      if (note.id === selectedIdRef.current && !(await saveCurrentNote())) return;
+      const initial = await getNote(note.id);
+      const urls = remoteImageUrls(initial.content);
+      if (!urls.length) {
+        showToast("这篇笔记没有网络图片", "info");
+        return;
+      }
+      showToast(`正在下载 ${urls.length} 张网络图片…`, "info");
+      const paths = new Map<string, string>();
+      for (const url of urls) {
+        try {
+          paths.set(url, await saveImageFromUrl(note.id, url));
+        } catch {
+          /* 保留失败图片的原链接 */
+        }
+      }
+      if (paths.size) {
+        if (selectedIdRef.current === note.id) {
+          const next = replaceRemoteImages(contentValueRef.current, paths);
+          contentValueRef.current = next;
+          setContent(next);
+          setSaveState("dirty");
+          if (!(await saveCurrentNote(true))) return;
+        } else {
+          const current = await getNote(note.id);
+          await updateNote(note.id, {
+            title: current.title,
+            category: current.category,
+            content: replaceRemoteImages(current.content, paths),
+          });
+          await refreshNotes();
+        }
+      }
+      const failed = urls.length - paths.size;
+      showToast(
+        `已下载 ${paths.size} 张图片${failed ? `，${failed} 张失败，已保留原链接` : "，已转换为本地资源"}`,
+        failed ? "warning" : "info",
+      );
+    } catch (error) {
+      showToast(getErrorMessage(error));
+    } finally {
+      localizingImages.current = false;
+    }
+  };
+
   const handleRevealNote = async (note: NoteMetadata) => {
     try {
       if (note.id === selectedId && !(await saveCurrentNote())) return;
@@ -1517,6 +1798,12 @@ export function MainWindow({
   const handleNoteMenuAction = (action: NoteContextMenuAction) => {
     const note = noteMenuTarget;
     if (!note) return;
+
+    if (action === "localize") {
+      setNoteMenuClosing(true);
+      void handleLocalizeImages(note);
+      return;
+    }
 
     if (action === "reveal") {
       setNoteMenuClosing(true);
@@ -1536,18 +1823,67 @@ export function MainWindow({
     }
 
     setNoteMenuClosing(true);
-    void handleDeleteNote(note.id);
+    setBatchDelete(selectedNoteIds.has(note.id) ? [...selectedNoteIds] : [note.id]);
   };
 
   const handleMoveNote = async (noteId: string, targetCategory: string) => {
     setNoteMenuClosing(true);
+    if (movingNotes.current) return;
+    const ids = selectedNoteIds.has(noteId) ? [...selectedNoteIds] : [noteId];
+    const targets = ids.filter((id) =>
+      notes.some((note) => note.id === id && note.category !== targetCategory),
+    );
+    if (!targets.length) return;
+    movingNotes.current = true;
+    let moved = 0;
     try {
-      await moveNoteCategory(noteId, targetCategory);
+      if (selectedId && targets.includes(selectedId) && !(await saveCurrentNote())) return;
+      for (const id of targets) {
+        await moveNoteCategory(id, targetCategory);
+        moved++;
+      }
       await refreshNotes();
+      resetNoteSelection();
+      if (targets.length > 1) showToast(`已移动 ${moved} 篇笔记`, "info");
     } catch (error) {
-      showToast(getErrorMessage(error));
+      showToast(`${moved ? `已移动 ${moved} 篇，其余未完成：` : ""}${getErrorMessage(error)}`);
+      await refreshNotes();
+    } finally {
+      movingNotes.current = false;
     }
   };
+
+  const {
+    dragging: draggingNote,
+    beginDrag: beginNoteDrag,
+    consumeDragClick,
+  } = useNoteCategoryDrag((id, category) => {
+    void handleMoveNote(id, category);
+  }, setDragOverCategory);
+  const {
+    dragging: draggingCategory,
+    beginDrag: beginCategoryDrag,
+    consumeDragClick: consumeCategoryClick,
+  } = useNoteCategoryDrag((source, target) => {
+    if (!target || source === target) return;
+    const element = document.querySelector<HTMLElement>(
+      `[data-note-drop-category="${CSS.escape(target)}"] > .group\\/cat`,
+    );
+    const box = element?.getBoundingClientRect();
+    const after = box && draggingCategory ? draggingCategory.y > box.top + box.height / 2 : false;
+    const next = categories.filter((category) => category !== source);
+    const index = next.indexOf(target);
+    if (index < 0) return;
+    next.splice(index + (after ? 1 : 0), 0, source);
+    setCategories(next);
+    categorySortQueue.current = categorySortQueue.current
+      .catch(() => {})
+      .then(() => saveCategoryOrder(next))
+      .catch((error) => {
+        showToast(getErrorMessage(error));
+        void refreshNotes();
+      });
+  }, setCategorySortTarget);
 
   const handleCreateCategory = async () => {
     const name = categoryInputValue.trim();
@@ -1557,7 +1893,7 @@ export function MainWindow({
     }
     try {
       await createCategory(name);
-      setCategories((prev) => [...prev, name].sort());
+      await refreshNotes();
       setShowCategoryInput(false);
       setCategoryInputValue("");
     } catch (error) {
@@ -1989,6 +2325,80 @@ export function MainWindow({
 
   return (
     <div className="w-full h-screen flex flex-col">
+      {draggingNote && (
+        <div
+          className="fixed z-[100] pointer-events-none max-w-60 truncate rounded-lg border border-bamboo/30 bg-paper px-3 py-2 text-xs text-bamboo shadow-lg"
+          style={{ left: draggingNote.x + 12, top: draggingNote.y + 12 }}
+        >
+          {draggingNote.title}
+        </div>
+      )}
+      {(batchDelete || renameNote) && (
+        <div className="fixed inset-0 z-[110] bg-black/20 flex items-center justify-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={batchDelete ? "删除笔记" : "重命名笔记"}
+            className="w-80 rounded-xl border border-paper-deep bg-paper p-5 shadow-xl text-ink"
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !noteActionBusy) {
+                setBatchDelete(null);
+                setRenameNote(null);
+              }
+              if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
+                event.preventDefault();
+                void confirmNoteAction();
+              }
+            }}
+          >
+            <h2 className="text-sm font-medium mb-4">
+              {batchDelete ? `删除选中的 ${batchDelete.length} 篇笔记？` : "重命名笔记"}
+            </h2>
+            {batchDelete ? (
+              <p className="text-xs text-ink-ghost mb-4">笔记及对应图片将移入回收站。</p>
+            ) : (
+              <input
+                autoFocus
+                aria-label="笔记名称"
+                value={renameNote!.title}
+                onFocus={(event) => event.target.select()}
+                onChange={(event) =>
+                  setRenameNote((current) => current && { ...current, title: event.target.value })
+                }
+                className="w-full border border-paper-deep rounded-lg px-3 py-2 text-sm bg-paper-warm mb-4"
+              />
+            )}
+            <div className="flex justify-end gap-3 text-xs">
+              <button
+                autoFocus={!!batchDelete}
+                disabled={noteActionBusy}
+                className="px-3 py-2 rounded-lg hover:bg-paper-warm cursor-pointer"
+                onClick={() => {
+                  setBatchDelete(null);
+                  setRenameNote(null);
+                }}
+              >
+                取消
+              </button>
+              <button
+                disabled={noteActionBusy}
+                className={`px-3 py-2 rounded-lg cursor-pointer ${batchDelete ? "text-red-400 bg-red-400/10" : "text-bamboo bg-bamboo-mist"}`}
+                onClick={() => void confirmNoteAction()}
+              >
+                {noteActionBusy ? "处理中…" : batchDelete ? "删除" : "保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {draggingCategory && (
+        <div
+          className="fixed z-[100] pointer-events-none rounded-lg border border-bamboo/30 bg-paper px-3 py-2 text-xs text-bamboo shadow-lg"
+          style={{ left: draggingCategory.x + 12, top: draggingCategory.y + 12 }}
+        >
+          {draggingCategory.title}
+        </div>
+      )}
       <div className="relative noise-bg bg-cloud overflow-hidden flex flex-col flex-1">
         <BackgroundLayer config={settingsConfig} />
         <div
@@ -2005,8 +2415,7 @@ export function MainWindow({
               —
             </span>
             <span className="text-[11px] text-ink-faint font-body truncate max-w-[240px] leading-none translate-y-px">
-              {title ||
-                selectedNote?.preview ||
+              {(quadrantsOpen ? "四象限" : title) ||
                 t("common.untitledNote", { defaultValue: "无标题笔记" })}
             </span>
           </div>
@@ -2303,30 +2712,58 @@ export function MainWindow({
                       })}`
                     : ""}
                 </span>
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    if (showCategoryInput && categoryInputValue.trim()) {
-                      void handleCreateCategory();
-                      return;
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      setCollapsedCategories(
+                        new Set(
+                          [...categories, ...notes.map((note) => note.category)].filter(Boolean),
+                        ),
+                      )
                     }
-                    setShowCategoryInput(true);
-                  }}
-                  className="text-[10px] text-ink-ghost hover:text-bamboo transition-colors cursor-pointer"
-                  title={t("main.category.new", { defaultValue: "新建分类" })}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
+                    className="text-ink-ghost hover:text-bamboo transition-colors cursor-pointer"
+                    title="收起所有文件夹"
+                    aria-label="收起所有文件夹"
                   >
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m7 11 5-5 5 5M7 18l5-5 5 5" />
+                    </svg>
+                  </button>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      if (showCategoryInput && categoryInputValue.trim()) {
+                        void handleCreateCategory();
+                        return;
+                      }
+                      setShowCategoryInput(true);
+                    }}
+                    className="text-[10px] text-ink-ghost hover:text-bamboo transition-colors cursor-pointer"
+                    title={t("main.category.new", { defaultValue: "新建分类" })}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                    >
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {showCategoryInput && (
@@ -2352,6 +2789,31 @@ export function MainWindow({
 
               <div className="flex-1 overflow-y-auto px-2 pb-2">
                 <div className="space-y-0.5">
+                  <button
+                    onClick={() =>
+                      void (async () => {
+                        if (!(await saveCurrentNote())) return;
+                        clearCurrentNote();
+                        setActiveCategory("");
+                        setQuadrantsOpen(true);
+                      })()
+                    }
+                    className={`w-full flex items-center gap-2 px-3 h-8 mb-1 rounded-lg border text-left transition-colors cursor-pointer ${quadrantsOpen ? "border-cyan-600/40 bg-cyan-500/25" : "border-cyan-600/25 bg-cyan-500/15 hover:bg-cyan-500/20"}`}
+                  >
+                    <svg
+                      className="quadrant-entry-ink"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <rect x="3" y="3" width="18" height="18" rx="4" />
+                      <path d="M12 3v18M3 12h18" />
+                    </svg>
+                    <span className="text-[12px] quadrant-entry-ink">四象限</span>
+                  </button>
                   {externalFiles.length > 0 && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] text-ink-ghost/50 font-mono tracking-wider uppercase">
@@ -2365,6 +2827,7 @@ export function MainWindow({
                           <button
                             key={file.id}
                             onClick={() => void handleSelectExternalFile(file.id)}
+                            data-external-note="true"
                             onMouseEnter={() => setHoveredId(file.id)}
                             onMouseLeave={() => setHoveredId(null)}
                             className={`w-full text-left rounded-xl px-3 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
@@ -2442,6 +2905,7 @@ export function MainWindow({
                       return (
                         <div
                           key="__uncategorized__"
+                          data-note-drop-category=""
                           className={`rounded-lg transition-all duration-200 ${
                             dragOverCategory === "" ? "bg-bamboo/10 ring-1 ring-bamboo/20" : ""
                           }`}
@@ -2468,12 +2932,35 @@ export function MainWindow({
                             return (
                               <div
                                 key={note.id}
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData("text/plain", note.id);
-                                  e.dataTransfer.effectAllowed = "move";
+                                data-note-id={note.id}
+                                tabIndex={0}
+                                data-multi-selected={
+                                  selectedNoteIds.has(note.id) ? "true" : undefined
+                                }
+                                aria-current={isSelected ? "true" : undefined}
+                                onPointerDown={(event) => {
+                                  if (
+                                    event.ctrlKey ||
+                                    event.metaKey ||
+                                    event.shiftKey ||
+                                    heldSelectionKeys.current.ctrl ||
+                                    heldSelectionKeys.current.shift
+                                  ) {
+                                    event.preventDefault();
+                                    handleNoteSelection(event, note.id);
+                                    modifierPointerSelection.current = true;
+                                    return;
+                                  }
+                                  modifierPointerSelection.current = false;
+                                  beginNoteDrag(event, note.id, getDisplayTitle(note, t));
                                 }}
-                                onClick={() => void handleSelectNote(note.id)}
+                                onClick={(event) => {
+                                  if (modifierPointerSelection.current) {
+                                    modifierPointerSelection.current = false;
+                                    return;
+                                  }
+                                  handleNoteSelection(event, note.id);
+                                }}
                                 onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
                                 onMouseEnter={() => setHoveredId(note.id)}
                                 onMouseLeave={() => setHoveredId(null)}
@@ -2524,7 +3011,11 @@ export function MainWindow({
                     const isCollapsed = collapsedCategories.has(group.category);
 
                     return (
-                      <div key={group.category} className="px-2 mb-0.5">
+                      <div
+                        key={group.category}
+                        data-note-drop-category={group.category}
+                        className={`px-2 mb-0.5 ${categorySortTarget === group.category ? "ring-1 ring-bamboo/50 rounded-lg" : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
+                      >
                         <div
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
                             dragOverCategory === group.category
@@ -2533,7 +3024,18 @@ export function MainWindow({
                                 ? "bg-transparent border border-bamboo/15"
                                 : "bg-bamboo/8 border border-bamboo/15 rounded-b-none"
                           }`}
-                          onClick={() => toggleCategoryCollapse(group.category)}
+                          onClick={() => {
+                            if (consumeCategoryClick()) return;
+                            setSelectedNoteIds(new Set());
+                            selectionAnchor.current = null;
+                            setActiveCategory(group.category);
+                            toggleCategoryCollapse(group.category);
+                          }}
+                          onPointerDown={(event) => {
+                            if ((event.target as HTMLElement).closest("input,button")) return;
+                            beginCategoryDrag(event, group.category, group.category);
+                          }}
+                          title="拖动调整分类顺序"
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -2582,7 +3084,16 @@ export function MainWindow({
                             strokeLinejoin="round"
                             className="text-bamboo/50 shrink-0"
                           >
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                            {group.category === "Agent知识库" ? (
+                              <>
+                                <rect x="4" y="7" width="16" height="13" rx="3" />
+                                <path d="M12 7V3M9 3h6M1 11v5M23 11v5M9 16h6" />
+                                <circle cx="8" cy="12" r="1" />
+                                <circle cx="16" cy="12" r="1" />
+                              </>
+                            ) : (
+                              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                            )}
                           </svg>
                           {renamingCategory === group.category ? (
                             <input
@@ -2611,7 +3122,11 @@ export function MainWindow({
 
                         <div className={`category-body ${isCollapsed ? "" : "expanded"}`}>
                           <div
-                            className="category-body-inner bg-bamboo/[0.03] border border-t-0 border-bamboo/10 rounded-b-lg pb-1 pt-1"
+                            className={`category-body-inner border border-t-0 rounded-b-lg pb-1 pt-1 transition-colors duration-200 ${
+                              dragOverCategory === group.category
+                                ? "bg-bamboo/10 border-bamboo/40 ring-1 ring-bamboo/20"
+                                : "bg-bamboo/[0.03] border-bamboo/10"
+                            }`}
                             onDragOver={(e) => {
                               e.preventDefault();
                               e.dataTransfer.dropEffect = "move";
@@ -2641,12 +3156,35 @@ export function MainWindow({
                                 return (
                                   <div
                                     key={note.id}
-                                    draggable
-                                    onDragStart={(e) => {
-                                      e.dataTransfer.setData("text/plain", note.id);
-                                      e.dataTransfer.effectAllowed = "move";
+                                    data-note-id={note.id}
+                                    tabIndex={0}
+                                    data-multi-selected={
+                                      selectedNoteIds.has(note.id) ? "true" : undefined
+                                    }
+                                    aria-current={isSelected ? "true" : undefined}
+                                    onPointerDown={(event) => {
+                                      if (
+                                        event.ctrlKey ||
+                                        event.metaKey ||
+                                        event.shiftKey ||
+                                        heldSelectionKeys.current.ctrl ||
+                                        heldSelectionKeys.current.shift
+                                      ) {
+                                        event.preventDefault();
+                                        handleNoteSelection(event, note.id);
+                                        modifierPointerSelection.current = true;
+                                        return;
+                                      }
+                                      modifierPointerSelection.current = false;
+                                      beginNoteDrag(event, note.id, getDisplayTitle(note, t));
                                     }}
-                                    onClick={() => void handleSelectNote(note.id)}
+                                    onClick={(event) => {
+                                      if (modifierPointerSelection.current) {
+                                        modifierPointerSelection.current = false;
+                                        return;
+                                      }
+                                      handleNoteSelection(event, note.id);
+                                    }}
                                     onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
                                     onMouseEnter={() => setHoveredId(note.id)}
                                     onMouseLeave={() => setHoveredId(null)}
@@ -2726,7 +3264,8 @@ export function MainWindow({
             </div>
           )}
 
-          <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 flex flex-col min-w-0 relative">
+            {quadrantsOpen && <QuadrantBoard />}
             <div className="flex items-center justify-between px-4 h-10 border-b border-paper-deep/20 shrink-0 bg-paper/20">
               <div className="flex items-center gap-1">
                 <button
@@ -3254,19 +3793,32 @@ export function MainWindow({
         >
           {noteMenuMode === "main" ? (
             <div key="main" className="animate-menu-slide-right">
-              {noteContextMenuItems.map((item, index) => (
-                <button
-                  key={item.action}
-                  onClick={() => handleNoteMenuAction(item.action)}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body transition-colors cursor-pointer ${
-                    item.tone === "danger"
-                      ? "text-red-400 hover:bg-danger-bg hover:text-red-500"
-                      : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"
-                  } ${index > 0 ? "border-t border-paper-deep/20" : ""}`}
-                >
-                  <span>{item.label}</span>
-                </button>
-              ))}
+              {noteContextMenuItems
+                .filter(
+                  (item) =>
+                    !(selectedNoteIds.has(noteMenuTarget.id) && selectedNoteIds.size > 1) ||
+                    item.action === "move" ||
+                    item.action === "delete",
+                )
+                .map((item, index) => (
+                  <button
+                    key={item.action}
+                    onClick={() => handleNoteMenuAction(item.action)}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body transition-colors cursor-pointer ${
+                      item.tone === "danger"
+                        ? "text-red-400 hover:bg-danger-bg hover:text-red-500"
+                        : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"
+                    } ${index > 0 ? "border-t border-paper-deep/20" : ""}`}
+                  >
+                    <span>
+                      {selectedNoteIds.has(noteMenuTarget.id) && selectedNoteIds.size > 1
+                        ? item.action === "delete"
+                          ? `删除选中的 ${selectedNoteIds.size} 篇笔记`
+                          : `移动选中的 ${selectedNoteIds.size} 篇笔记…`
+                        : item.label}
+                    </span>
+                  </button>
+                ))}
             </div>
           ) : (
             <div key="move" className="animate-menu-slide-left">
