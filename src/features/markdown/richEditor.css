@@ -84,6 +84,9 @@
   border-radius: 8px;
   color: var(--color-ink-soft);
 }
+.rich-editor .vditor-wysiwyg > .vditor-panel:empty {
+  display: none !important;
+}
 .rich-editor .vditor-wysiwyg pre.vditor-reset,
 .rich-editor .vditor-wysiwyg pre.vditor-reset:focus {
   background: transparent;

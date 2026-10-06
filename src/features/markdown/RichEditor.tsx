@@ -88,6 +88,12 @@ export function RichEditor(props: Props) {
         lang: "zh_CN",
         toolbar: createRichToolbar(() => editor),
         toolbarConfig: { pin: true },
+        customWysiwygToolbar: (type, toolbar) => {
+          toolbar
+            .querySelectorAll('[data-type="up"], [data-type="down"], [data-type="remove"]')
+            .forEach((button) => button.remove());
+          if (type === "heading") toolbar.replaceChildren();
+        },
         preview: {
           maxWidth: 10000,
           markdown: {
@@ -254,6 +260,18 @@ export function RichEditor(props: Props) {
       onContextMenu={(event) => event.stopPropagation()}
       onClickCapture={syncInput}
       onKeyUp={syncInput}
+      onKeyDownCapture={(event) => {
+        // Disable whole-block shortcuts while retaining ordinary cut/delete/undo.
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          !event.altKey &&
+          ["x", "u", "d"].includes(event.key.toLowerCase())
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
       onInput={(event) => {
         if (!(event.nativeEvent as InputEvent).isComposing) syncInput();
       }}
