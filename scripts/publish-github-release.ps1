@@ -71,7 +71,7 @@ header = "Accept: application/vnd.github+json"
 header = "Content-Type: application/octet-stream"
 data-binary = "@$curlFile"
 connect-timeout = 15
-max-time = 300
+max-time = 900
 fail-with-body
 show-error
 progress-bar
