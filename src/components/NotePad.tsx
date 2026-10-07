@@ -40,7 +40,6 @@ import type { TileColorMode } from "../features/settings/types";
 import {
   shouldEnterPadFromTileOnDoubleClick,
   shouldReturnToTileAfterManualSave,
-  shouldSaveBeforeSwitchingToTile,
 } from "../features/windows/noteSurfaceSavePolicy";
 import {
   NOTE_SURFACE_ACTION_EVENT,
@@ -137,6 +136,15 @@ export function NotePad({
 }: NotePadProps) {
   const { t } = useTranslation();
   const [surfaceMode, setSurfaceMode] = useState<NoteSurfaceMode>(initialSurfaceMode);
+  const [isPinned, setIsPinned] = useState(false);
+  const pinPending = useRef(false);
+  useEffect(() => {
+    if (surfaceMode === "pad") {
+      void setCurrentWindowAlwaysOnTop(isPinned).catch((error) =>
+        showToast(getErrorMessage(error)),
+      );
+    }
+  }, [surfaceMode, isPinned]);
   const richEditorRef = useRef<RichEditorHandle>(null);
   const richMode = true;
   const [mode, setMode] = useState<OpenMode>("new");
@@ -331,6 +339,8 @@ export function NotePad({
       setStatus("empty");
       setIsExiting(false);
       setSurfaceMode("pad");
+      setIsPinned(false);
+      void setCurrentWindowAlwaysOnTop(false).catch(() => undefined);
       void refreshNotes().catch(() => undefined);
       void showCurrentWindow()
         .then(() => (richMode ? richEditorRef.current : contentRef.current)?.focus())
@@ -606,13 +616,15 @@ export function NotePad({
   };
 
   const handlePin = async () => {
+    if (pinPending.current) return;
+    pinPending.current = true;
     try {
-      if (shouldSaveBeforeSwitchingToTile(noteSurfaceAutoSave) || !editingNoteId) {
-        await saveNote();
-      }
-      await switchSurfaceMode("tile");
+      await setCurrentWindowAlwaysOnTop(!isPinned);
+      setIsPinned(!isPinned);
     } catch (error) {
       showToast(getErrorMessage(error));
+    } finally {
+      pinPending.current = false;
     }
   };
 
@@ -785,11 +797,11 @@ export function NotePad({
         <div className={padSurfaceClassName} data-surface-mode={surfaceMode}>
           <>
             <div
-              className="flex items-center justify-between px-4 pt-3 pb-0 cursor-default"
+              className="flex items-center justify-between gap-2 px-3 pt-1.5 pb-0 cursor-default"
               onMouseDown={handleDrag}
             >
               <span
-                className="text-[13px] font-medium text-bamboo py-1.5 truncate"
+                className="min-w-0 text-[11px] font-medium text-bamboo py-1 truncate"
                 title={title || stickyName(draftCreatedAt.current)}
               >
                 {editingNoteId && title && title !== "便签"
@@ -800,11 +812,18 @@ export function NotePad({
                     )}
               </span>
 
-              <div className="ml-auto flex items-center gap-1.5">
+              <div className="ml-auto flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => void handlePin()}
                   className="group w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
-                  title={t("notepad.tooltip.pinToTile", { defaultValue: "转为磁贴" })}
+                  title={isPinned ? "取消置顶" : "置顶便签"}
+                  aria-label={isPinned ? "取消置顶" : "置顶便签"}
+                  aria-pressed={isPinned}
+                  style={
+                    isPinned
+                      ? { color: "var(--color-bamboo)", background: "var(--color-paper-warm)" }
+                      : undefined
+                  }
                 >
                   <svg
                     width="14"
@@ -841,12 +860,12 @@ export function NotePad({
               </div>
             </div>
 
-            <div className="mx-4 mt-1 h-px bg-paper-deep/50" />
+            <div className="mx-3 mt-1 h-px bg-paper-deep/50" />
 
             {mode === "new" ? (
               <div
                 data-pad-editor-body="true"
-                className="px-4 pt-3 pb-2 flex flex-col flex-1 min-h-0"
+                className="px-3 pt-1 pb-1.5 flex flex-col flex-1 min-h-0"
               >
                 {editingNoteId &&
                   notes.find((note) => note.id === editingNoteId)?.category !== "便签" && (
@@ -884,20 +903,20 @@ export function NotePad({
                   onError={showToast}
                 />
 
-                <div className="flex items-center justify-between mt-auto pt-2 border-t border-paper-deep/30 shrink-0">
-                  <span className="text-[11px] text-ink-ghost font-mono tabular-nums truncate max-w-[170px]">
+                <div className="flex items-center justify-between gap-2 mt-auto pt-1 border-t border-paper-deep/30 shrink-0">
+                  <span className="min-w-0 text-[10px] text-ink-ghost font-mono tabular-nums truncate">
                     {`${countNoteChars(content)} ${t("common.wordCountUnit", { defaultValue: "字" })} · ${statusLabel[status]}`}
                   </span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={resetDraft}
-                      className="px-4 py-1.5 text-[12px] text-ink-faint hover:text-ink-soft rounded-lg hover:bg-paper-warm transition-all duration-200 cursor-pointer"
+                      className="px-2 py-1 text-[11px] text-ink-faint hover:text-ink-soft rounded-lg hover:bg-paper-warm transition-all duration-200 cursor-pointer"
                     >
                       {t("notepad.button.clear", { defaultValue: "清空" })}
                     </button>
                     <button
                       onClick={() => void handleSave()}
-                      className="px-4 py-1.5 text-[12px] text-cloud bg-bamboo hover:bg-bamboo-light rounded-lg transition-all duration-200 font-medium cursor-pointer"
+                      className="px-2.5 py-1 text-[11px] text-cloud bg-bamboo hover:bg-bamboo-light rounded-lg transition-all duration-200 font-medium cursor-pointer"
                     >
                       {t("common.save", { defaultValue: "保存" })}
                     </button>

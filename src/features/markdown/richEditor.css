@@ -264,6 +264,13 @@
   flex-wrap: nowrap;
   gap: 4px;
 }
+.rich-editor-compact .vditor-reset {
+  padding: 6px 0 10px !important;
+}
+.rich-editor-compact .vditor-wysiwyg pre.vditor-reset:empty::before {
+  left: 0;
+  top: 6px;
+}
 .rich-editor-compact .vditor-toolbar > .vditor-toolbar__item {
   flex-shrink: 0;
 }

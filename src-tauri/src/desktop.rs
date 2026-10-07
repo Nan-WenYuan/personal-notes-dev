@@ -1461,7 +1461,7 @@ fn open_notepad_window_now(
             title: locales::notepad_window_title(locale).to_string(),
             specs,
             decorations: false,
-            always_on_top: true,
+            always_on_top: false,
             shadow: false,
             skip_taskbar: true,
             bounds,
@@ -1624,7 +1624,7 @@ fn prewarm_notepad(app: &AppHandle) -> Result<(), AppError> {
     .resizable(true)
     .decorations(false)
     .transparent(visual_options.transparent)
-    .always_on_top(true)
+    .always_on_top(false)
     .shadow(false)
     .skip_taskbar(true)
     .visible(false)
