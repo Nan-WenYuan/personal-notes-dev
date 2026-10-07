@@ -469,6 +469,7 @@ export function MainWindow({
     createAboutUpdateReminderState(null),
   );
   const [settingsConfig, setSettingsConfig] = useState<AppConfig | null>(initialConfig ?? null);
+  const [skillPromptPath, setSkillPromptPath] = useState("");
   const [skillInstallPrompt, setSkillInstallPrompt] = useState<string | null>(null);
   const [savedDataDir, setSavedDataDir] = useState<string | null>(initialConfig?.dataDir ?? null);
   const [noteTransitionKey, setNoteTransitionKey] = useState(0);
@@ -4061,8 +4062,14 @@ export function MainWindow({
                             setup: action === "setup",
                           });
                           {
+                            setSkillPromptPath(path);
+                            const savedPrompt = await invoke<string | null>(
+                              "agent_skill_prompt_get",
+                            );
                             setSkillInstallPrompt(
-                              `请为当前 AI 开发工具创建并安装一个“开发知识库”技能，使用该工具支持的技能格式和安装位置；如果不支持技能，请说明并提供等效的项目规则。\n知识库目录：${path}\n先读取该目录的 AGENTS.md 和 .agent-index.md，再创建技能。技能应规定：开发前按需搜索、查阅相关笔记，不加载全部知识库；开发后只沉淀经过验证且可复用的结论，优先更新已有主题，没有新知识就不写。直接读写 UTF-8 Markdown，不修改软件索引；修改前重新读取文件，避免覆盖他人内容。遵循用户当前要求和项目规范，不保存凭据或私人数据。\n知识库路径集中配置，迁移时只需修改一处。技能中保存使用流程，具体经验保留在知识库笔记里。安装完成后说明安装位置和调用方式。`,
+                              savedPrompt !== null
+                                ? savedPrompt.split("{{知识库目录}}").join(path)
+                                : `请为当前 AI 开发工具创建并安装一个“开发知识库”技能，使用该工具支持的技能格式和安装位置；如果不支持技能，请说明并提供等效的项目规则。先检查是否已安装同名或用途相同的技能：如果已有，读取现有技能，在原位置更新知识库路径和本次规则，保留仍有效的自定义内容，不重复安装、不创建同用途副本；有冲突时遵循用户当前要求，并说明调整。只有没有适用技能时才新建安装。\n知识库目录：${path}\n先读取该目录的 AGENTS.md 和 .agent-index.md，再创建技能。技能应规定：开发前按需搜索、查阅相关笔记，不加载全部知识库；开发过程中持续沉淀：每当解决问题、完成验证、确认重要设计决定或发现可复用经验时，立即判断是否值得记录；有经过验证的新结论就及时更新知识库，不必等整个任务结束，也不要等用户提醒。优先更新已有主题，记录结论、适用条件、验证依据和相关代码位置；失败尝试只有明确原因及可复用教训时才记录。每个开发阶段结束前检查是否有遗漏，交付时简短说明已沉淀的主题或本次没有值得记录的新结论。不要把未验证猜测、重复内容或流水账写进知识库。直接读写 UTF-8 Markdown，不修改软件索引；修改前重新读取文件，避免覆盖他人内容。遵循用户当前要求和项目规范，不保存凭据或私人数据。\n知识库路径集中配置，迁移时只需修改一处。技能中保存使用流程，具体经验保留在知识库笔记里。完成后说明是新建还是更新、技能位置、主要修改和调用方式；确认技能已写入并可被当前工具发现，不要仅返回一份建议文本。`,
                             );
                           }
                           await refreshNotes();
@@ -4133,6 +4140,20 @@ export function MainWindow({
                 onClick={() => setSkillInstallPrompt(null)}
               >
                 关闭
+              </button>
+              <button
+                className="px-3 py-1.5 text-xs rounded-lg hover:bg-paper-deep cursor-pointer"
+                onClick={() =>
+                  void invoke("agent_skill_prompt_save", {
+                    prompt: skillPromptPath
+                      ? skillInstallPrompt.split(skillPromptPath).join("{{知识库目录}}")
+                      : skillInstallPrompt,
+                  })
+                    .then(() => showToast("提示词已保存", "success"))
+                    .catch((error) => showToast(getErrorMessage(error)))
+                }
+              >
+                保存提示词
               </button>
               <button
                 className="px-3 py-1.5 text-xs rounded-lg bg-bamboo text-cloud cursor-pointer"

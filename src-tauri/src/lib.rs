@@ -74,6 +74,25 @@ fn agent_knowledge_directory(setup: bool) -> Result<String, AppError> {
 }
 
 #[tauri::command]
+fn agent_skill_prompt_get() -> Result<Option<String>, String> {
+    let path = services::notes::default_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("agent-skill-prompt.txt");
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn agent_skill_prompt_save(prompt: String) -> Result<(), String> {
+    let dir = services::notes::default_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("agent-skill-prompt.txt"), prompt).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn agent_knowledge_open_directory(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     let dir = default_store()
@@ -698,6 +717,8 @@ pub fn run() {
             notes_create,
             notes_update,
             agent_knowledge_directory,
+            agent_skill_prompt_get,
+            agent_skill_prompt_save,
             agent_knowledge_open_directory,
             notes_delete,
             notes_import_markdown,
