@@ -3,7 +3,7 @@ import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
 import { join } from "@tauri-apps/api/path";
-import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
 import {
@@ -4046,11 +4046,14 @@ export function MainWindow({
                       void (async () => {
                         setCategoryMenuClosing(true);
                         try {
+                          if (action === "open") {
+                            await invoke("agent_knowledge_open_directory");
+                            return;
+                          }
                           const path = await invoke<string>("agent_knowledge_directory", {
                             setup: action === "setup",
                           });
-                          if (action === "open") await openPath(path);
-                          else {
+                          {
                             await writeText(
                               `本项目使用共享 Agent 知识库：${path}\n开发前读取该目录的 AGENTS.md 和 .agent-index.md，按需查阅相关笔记；开发后沉淀经过验证且可复用的经验，优先更新已有主题。直接读写 UTF-8 Markdown，不修改软件索引。遵循用户当前要求和本项目规范。`,
                             );

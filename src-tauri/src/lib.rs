@@ -74,6 +74,17 @@ fn agent_knowledge_directory(setup: bool) -> Result<String, AppError> {
 }
 
 #[tauri::command]
+fn agent_knowledge_open_directory(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = default_store()
+        .and_then(|store| store.agent_knowledge_directory())
+        .map_err(|error| error.to_string())?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|error| format!("无法打开知识库目录：{error}"))
+}
+
+#[tauri::command]
 fn notes_delete(app: AppHandle, id: String) -> Result<(), AppError> {
     default_store()?.delete_note(&id)?;
     let _ = app.emit("notes-changed", ());
@@ -681,6 +692,7 @@ pub fn run() {
             notes_create,
             notes_update,
             agent_knowledge_directory,
+            agent_knowledge_open_directory,
             notes_delete,
             notes_import_markdown,
             notes_export_markdown,
