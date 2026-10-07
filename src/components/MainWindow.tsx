@@ -3539,7 +3539,7 @@ export function MainWindow({
                           });
                           await refreshNotes();
                           applyNote(copy);
-                          showToast("本地内容已另存副本，原文件保留");
+                          showToast("本地内容已另存副本，原文件保留", "success");
                         } catch (error) {
                           showToast(getErrorMessage(error));
                         }
@@ -4037,12 +4037,12 @@ export function MainWindow({
                   [
                     ["打开知识库目录", "open"],
                     ["复制知识库路径", "path"],
-                    ["初始化并复制接入说明", "setup"],
+                    ["复制接入说明", "setup"],
                   ] as const
                 ).map(([label, action]) => (
                   <button
                     key={action}
-                    className="w-full text-left px-3 py-1.5 text-[12px] text-orange-600 hover:bg-orange-100/30 cursor-pointer"
+                    className="w-full text-left px-3 py-1.5 text-[12px] text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo cursor-pointer"
                     onClick={() =>
                       void (async () => {
                         setCategoryMenuClosing(true);
@@ -4058,9 +4058,8 @@ export function MainWindow({
                                 : `本项目使用共享 Agent 知识库：${path}\n开发前读取该目录的 AGENTS.md 和 .agent-index.md，按需查阅相关笔记；开发后沉淀经过验证且可复用的经验，优先更新已有主题。直接读写 UTF-8 Markdown，不修改软件索引。遵循用户当前要求和本项目规范。`,
                             );
                             showToast(
-                              action === "path"
-                                ? "知识库路径已复制"
-                                : "接入说明已复制，可粘贴到项目 AGENTS.md 或发给 Agent",
+                              action === "path" ? "知识库路径已复制" : "接入说明已复制",
+                              "success",
                             );
                           }
                           await refreshNotes();
