@@ -258,3 +258,20 @@
   border-radius: 4px;
   padding: 2px 5px;
 }
+.rich-editor-compact .vditor-toolbar {
+  display: none;
+  padding: 4px 8px !important;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.rich-editor-compact .vditor-toolbar > .vditor-toolbar__item {
+  flex-shrink: 0;
+}
+.rich-editor-compact .vditor-toolbar .vditor-hint {
+  max-width: 230px;
+}
+.rich-editor .vditor-reset li:has(> input[type="checkbox"]:checked),
+.rich-editor .vditor-reset li:has(> p > input[type="checkbox"]:checked) > p {
+  text-decoration: line-through;
+  color: var(--color-ink-ghost);
+}

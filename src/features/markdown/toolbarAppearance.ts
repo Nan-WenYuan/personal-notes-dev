@@ -19,8 +19,8 @@ export const editorTools = [
   { name: "undo", label: "↶", style: "", title: "撤销", action: "undo" },
   { name: "redo", label: "↷", style: "", title: "重做", action: "redo" },
 ] as const;
-export function createRichToolbar(editor: () => Vditor) {
-  return editorTools.map(({ name, label, style, title }) => ({
+export function createRichToolbar(editor: () => Vditor, compact = false) {
+  const tools = editorTools.map(({ name, label, style, title }) => ({
     name,
     tip: title,
     icon: `<span class="editor-tool-symbol ${style}">${label === "<>" ? "&lt;&gt;" : label}</span>`,
@@ -34,4 +34,10 @@ export function createRichToolbar(editor: () => Vditor) {
         }
       : {}),
   }));
+  if (!compact) return tools;
+  const common = new Set(["bold", "italic", "headings", "list", "check"]);
+  return [
+    ...tools.filter((tool) => common.has(tool.name)),
+    { name: "more", tip: "更多格式", toolbar: tools.filter((tool) => !common.has(tool.name)) },
+  ];
 }

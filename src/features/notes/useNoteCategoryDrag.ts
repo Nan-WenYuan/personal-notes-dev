@@ -7,8 +7,8 @@ interface DragNote {
   y: number;
 }
 export function useNoteCategoryDrag(
-  onMove: (id: string, category: string) => void,
-  onTarget: (category: string | null) => void,
+  onMove: (id: string, category: string, position?: { x: number; y: number }) => void,
+  onTarget: (category: string | null, position?: { x: number; y: number }) => void,
 ) {
   const latest = useRef({ onMove, onTarget });
   latest.current = { onMove, onTarget };
@@ -26,7 +26,10 @@ export function useNoteCategoryDrag(
       drag.active = true;
       event.preventDefault();
       setDragging({ id: drag.id, title: drag.title, x: event.clientX, y: event.clientY });
-      latest.current.onTarget(targetAt(event.clientX, event.clientY));
+      latest.current.onTarget(targetAt(event.clientX, event.clientY), {
+        x: event.clientX,
+        y: event.clientY,
+      });
     };
     const finish = (event: PointerEvent) => {
       const drag = pending.current;
@@ -41,7 +44,7 @@ export function useNoteCategoryDrag(
         }, 0);
         const category = targetAt(event.clientX, event.clientY);
         if (event.type === "pointerup" && category !== null)
-          latest.current.onMove(drag.id, category);
+          latest.current.onMove(drag.id, category, { x: event.clientX, y: event.clientY });
       }
     };
     const cancel = () => {

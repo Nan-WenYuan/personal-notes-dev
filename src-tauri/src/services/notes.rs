@@ -1136,7 +1136,7 @@ impl NoteStore {
         let order: Vec<String> = if self.data_dir.join("分类排序.json").exists() {
             serde_json::from_str(&fs::read_to_string(self.data_dir.join("分类排序.json"))?)?
         } else {
-            vec!["Agent知识库".into()]
+            vec!["Agent知识库".into(), "便签".into()]
         };
         categories.sort_by(|a, b| {
             order
@@ -1477,6 +1477,11 @@ impl NoteStore {
         if !agent_marker.exists() {
             fs::create_dir_all(self.notes_dir().join("Agent知识库"))?;
             fs::write(agent_marker, b"1")?;
+        }
+        let sticky_marker = self.data_dir.join(".sticky-category-initialized");
+        if !sticky_marker.exists() {
+            fs::create_dir_all(self.notes_dir().join("便签"))?;
+            fs::write(sticky_marker, b"1")?;
         }
         if !self.metadata_path().exists() {
             let metadata = self.rebuild_metadata()?;
@@ -2253,7 +2258,10 @@ mod tests {
         let image = store.save_image(&note.id, b"image", "png").unwrap();
         assert!(!image.starts_with("images/"));
         assert!(store.images_dir(&note.id).is_dir());
-        assert_eq!(store.list_categories().unwrap(), vec!["Agent知识库"]);
+        assert_eq!(
+            store.list_categories().unwrap(),
+            vec!["Agent知识库", "便签"]
+        );
         let renamed = store
             .update_note(
                 &note.id,

@@ -1,4 +1,9 @@
 import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
+function stickyName(createdAt: string | number) {
+  const created = new Date(createdAt);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `便签 ${created.getFullYear()}-${pad(created.getMonth() + 1)}-${pad(created.getDate())} ${pad(created.getHours())}:${pad(created.getMinutes())}:${pad(created.getSeconds())}`;
+}
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
@@ -158,6 +163,7 @@ export function NotePad({
   const statusRef = useRef<NotePadStatus>("empty");
   const contentValueRef = useRef(content);
   const diskBaseline = useRef<{ id: string; content: string } | null>(null);
+  const draftCreatedAt = useRef(Date.now());
   contentValueRef.current = content;
   const titleValueRef = useRef(title);
   titleValueRef.current = title;
@@ -181,14 +187,6 @@ export function NotePad({
       dirty: t("notepad.status.unsaved", { defaultValue: "未保存" }),
       saveFailed: t("notepad.status.saveFailed", { defaultValue: "保存失败" }),
       copied: t("notepad.status.copied", { defaultValue: "已复制" }),
-    }),
-    [t],
-  );
-  const tabLabels = useMemo(
-    () => ({
-      new: t("notepad.tab.new", { defaultValue: "新建" }),
-      edit: t("notepad.tab.edit", { defaultValue: "编辑" }),
-      open: t("notepad.tab.open", { defaultValue: "打开" }),
     }),
     [t],
   );
@@ -325,6 +323,7 @@ export function NotePad({
       isStandby.current = false;
       dormantRef.current = false;
       hasEnteredOnce.current = true;
+      draftCreatedAt.current = Date.now();
       setEditingNoteId(null);
       setTitle("");
       setContent("");
@@ -343,9 +342,18 @@ export function NotePad({
   }, [refreshNotes]);
 
   const saveNote = useCallback(async () => {
-    const existingCategory = notes.find((n) => n.id === editingNoteId)?.category ?? "";
+    const existingCategory = notes.find((n) => n.id === editingNoteId)?.category ?? "便签";
     const oldFileName = notes.find((n) => n.id === editingNoteId)?.fileName;
-    const request = { title, content, category: existingCategory };
+    const existingNote = notes.find((note) => note.id === editingNoteId);
+    const stickyTitle =
+      existingNote?.title && existingNote.title !== "便签"
+        ? existingNote.title
+        : stickyName(existingNote?.createdAt ?? draftCreatedAt.current);
+    const request = {
+      title: existingCategory === "便签" ? stickyTitle : title,
+      content,
+      category: existingCategory,
+    };
     const note = editingNoteId
       ? await updateNote(
           editingNoteId,
@@ -718,6 +726,7 @@ export function NotePad({
   };
 
   const resetDraft = () => {
+    draftCreatedAt.current = Date.now();
     setEditingNoteId(null);
     setTitle("");
     setContent("");
@@ -728,9 +737,9 @@ export function NotePad({
   const isTile = surfaceMode === "tile";
   const tileTitle = title.trim();
   const enterClass = hasEnteredOnce.current ? "" : "animate-window-enter";
-  const surfaceWrapperClassName = `w-full h-screen flex flex-col bg-transparent p-0 ${isExiting ? "animate-window-exit" : enterClass}`;
+  const surfaceWrapperClassName = `w-full h-screen flex flex-col bg-transparent ${surfaceMode === "pad" ? "p-2" : "p-0"} ${isExiting ? "animate-window-exit" : enterClass}`;
   const padSurfaceClassName =
-    "app-surface-frame relative noise-bg w-full h-full min-h-0 bg-cloud overflow-hidden flex flex-col flex-1 border border-paper-deep/70 shadow-[0_1px_10px_rgba(26,26,24,0.06)] transition-all duration-200 ease-out";
+    "app-surface-frame relative noise-bg w-full h-full min-h-0 bg-cloud overflow-hidden flex flex-col flex-1 border border-ink-ghost/30 shadow-[0_3px_12px_rgba(26,26,24,0.18)] transition-all duration-200 ease-out";
 
   return (
     <div className={surfaceWrapperClassName}>
@@ -779,34 +788,17 @@ export function NotePad({
               className="flex items-center justify-between px-4 pt-3 pb-0 cursor-default"
               onMouseDown={handleDrag}
             >
-              <div className="flex items-center gap-0.5">
-                <button
-                  onClick={resetDraft}
-                  className={`relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
-                    mode === "new"
-                      ? "text-bamboo font-medium"
-                      : "text-ink-ghost hover:text-ink-faint"
-                  }`}
-                >
-                  {editingNoteId ? tabLabels.edit : tabLabels.new}
-                  {mode === "new" && (
-                    <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-bamboo rounded-full" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setMode("open")}
-                  className={`relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
-                    mode === "open"
-                      ? "text-bamboo font-medium"
-                      : "text-ink-ghost hover:text-ink-faint"
-                  }`}
-                >
-                  {tabLabels.open}
-                  {mode === "open" && (
-                    <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-bamboo rounded-full" />
-                  )}
-                </button>
-              </div>
+              <span
+                className="text-[13px] font-medium text-bamboo py-1.5 truncate"
+                title={title || stickyName(draftCreatedAt.current)}
+              >
+                {editingNoteId && title && title !== "便签"
+                  ? title
+                  : stickyName(
+                      notes.find((note) => note.id === editingNoteId)?.createdAt ??
+                        draftCreatedAt.current,
+                    )}
+              </span>
 
               <div className="ml-auto flex items-center gap-1.5">
                 <button
@@ -856,26 +848,30 @@ export function NotePad({
                 data-pad-editor-body="true"
                 className="px-4 pt-3 pb-2 flex flex-col flex-1 min-h-0"
               >
-                <input
-                  ref={titleRef}
-                  type="text"
-                  value={title}
-                  onChange={(event) => {
-                    setTitle(event.target.value);
-                    setStatus("dirty");
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === "ArrowDown") {
-                      event.preventDefault();
-                      (richMode ? richEditorRef.current : contentRef.current)?.focus();
-                    }
-                  }}
-                  placeholder={t("notepad.placeholder.title", { defaultValue: "标题（可选）" })}
-                  className="w-full font-display font-medium text-ink placeholder:text-ink-ghost/60 mb-2 tracking-wide shrink-0"
-                  style={{ fontSize: `${surfaceFontSize}px` }}
-                />
+                {editingNoteId &&
+                  notes.find((note) => note.id === editingNoteId)?.category !== "便签" && (
+                    <input
+                      ref={titleRef}
+                      type="text"
+                      value={title}
+                      onChange={(event) => {
+                        setTitle(event.target.value);
+                        setStatus("dirty");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === "ArrowDown") {
+                          event.preventDefault();
+                          (richMode ? richEditorRef.current : contentRef.current)?.focus();
+                        }
+                      }}
+                      placeholder={t("notepad.placeholder.title", { defaultValue: "标题（可选）" })}
+                      className="w-full font-display font-medium text-ink placeholder:text-ink-ghost/60 mb-2 tracking-wide shrink-0"
+                      style={{ fontSize: `${surfaceFontSize}px` }}
+                    />
+                  )}
 
                 <RichEditor
+                  compactToolbar
                   editorRef={richEditorRef}
                   content={content}
                   onChange={(value) => {

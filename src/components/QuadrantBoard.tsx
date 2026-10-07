@@ -1,23 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Archive, ArrowLeft, RotateCcw, Trash2, Pause, Play } from "lucide-react";
+import { Archive, ArrowLeft, RotateCcw, Trash2, Play, Pause } from "lucide-react";
 import { clockText } from "../features/pomodoro/model";
 import { taskProgress } from "../features/pomodoro/taskProgress";
 import "./QuadrantBoard.css";
 import "./PomodoroBoard.css";
-import tomatoStart from "../assets/tomato-start-icon.png";
-import shortTomato from "../assets/tomatoes/short.png";
-import shortGold from "../assets/tomatoes/short-gold.png";
 import standardTomato from "../assets/tomatoes/standard.png";
+import actionTomato from "../assets/tomato-action-v2.png";
 import standardGold from "../assets/tomatoes/standard-gold.png";
-import longTomato from "../assets/tomatoes/long.png";
-import longGold from "../assets/tomatoes/long-gold.png";
 import { summarizeTask, tomatoLabels } from "../features/pomodoro/taskSummary";
-const tomatoAssets = {
-  short: [shortTomato, shortGold],
-  standard: [standardTomato, standardGold],
-  long: [longTomato, longGold],
-};
 import type { usePomodoro } from "../features/pomodoro/usePomodoro";
 import { loadQuadrants, saveQuadrants, retryQuadrants } from "../features/pomodoro/quadrantStorage";
 
@@ -59,6 +50,15 @@ export function QuadrantBoard({
     return () => window.clearTimeout(timeout);
   }, [completedUndo]);
   const current = useRef(tasks);
+  const longPressTimer = useRef<number | null>(null);
+  const [holdingTask, setHoldingTask] = useState<string | null>(null);
+  const longPressHandled = useRef(false);
+  const clearLongPress = () => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    setHoldingTask(null);
+  };
+  useEffect(() => clearLongPress, []);
   const revision = useRef(0);
   useEffect(() => {
     let cancelled = false;
@@ -365,6 +365,10 @@ export function QuadrantBoard({
                   {list.map((task) => {
                     const sessionProgress = taskProgress(timer.state, timer.remaining, task.id);
                     const active = sessionProgress !== null;
+                    const resting =
+                      timer.state.mode !== "focus" &&
+                      !!timer.state.sessionId &&
+                      timer.state.sessionTask?.id === task.id;
                     const progress = sessionProgress ?? 0;
                     const groups = summarizeTask(timer.state.records, task.id);
                     const count = groups.reduce((sum, group) => sum + group.count, 0);
@@ -375,6 +379,16 @@ export function QuadrantBoard({
                       <div
                         key={task.id}
                         className={`quadrant-task-row group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15 ${active ? "is-focusing" : ""}`}
+                        onClick={(event) => {
+                          const target = event.target as HTMLElement;
+                          if (target.closest("button, input, a")) return;
+                          const input = event.currentTarget.querySelector<HTMLInputElement>(
+                            'input[aria-label="任务内容"]',
+                          );
+                          if (!input) return;
+                          input.focus();
+                          input.setSelectionRange(input.value.length, input.value.length);
+                        }}
                       >
                         {active && (
                           <div
@@ -408,6 +422,7 @@ export function QuadrantBoard({
                         <div className="quadrant-task-content">
                           <input
                             aria-label="任务内容"
+                            title={task.text}
                             value={task.text}
                             className={`flex-1 min-w-0 bg-transparent text-sm text-ink outline-none ${task.completed ? "line-through opacity-45" : ""}`}
                             onChange={(event) => {
@@ -421,69 +436,29 @@ export function QuadrantBoard({
                               );
                             }}
                           />
-                          {active && (
+                          {(active || resting) && (
                             <div className="quadrant-focus-status">
                               <span>
-                                {timer.state.endsAt === null ? "已暂停" : "专注中"} ·{" "}
-                                {clockText(timer.remaining)} · {Math.floor(progress)}%
+                                {resting ? "休息 · " : timer.state.endsAt === null ? "暂停 · " : ""}
+                                {clockText(timer.remaining)}
                               </span>
-                              <button
-                                onClick={timer.toggle}
-                                aria-label={timer.state.endsAt === null ? "继续专注" : "暂停专注"}
-                              >
-                                {timer.state.endsAt === null ? (
-                                  <Play size={12} />
-                                ) : (
-                                  <Pause size={12} />
-                                )}
-                              </button>
                             </div>
                           )}
                           {count > 0 && (
                             <div
-                              className="quadrant-task-tomatoes"
+                              className={`quadrant-task-tomatoes quadrant-tomato-count ${count >= 10 ? "is-high" : count >= 5 ? "is-gold" : ""}`}
                               role="img"
                               aria-label={`已完成 ${count} 个番茄，累计 ${minutes} 分钟`}
-                              title={`已完成 ${count} 个番茄 · 累计 ${minutes} 分钟`}
+                              title={`已完成 ${count} 个番茄 · 累计 ${minutes} 分钟 · ${groups.map((group) => `${tomatoLabels[group.kind]}：${group.detail}`).join("；")}`}
                             >
-                              {groups.map((group) => (
-                                <span
-                                  className="quadrant-tomato-group"
-                                  key={group.kind}
-                                  title={`${tomatoLabels[group.kind]}：${group.count}次 · ${group.detail} · 累计${group.seconds / 60}分钟`}
-                                >
-                                  {Array.from(
-                                    { length: group.bundles > 4 ? 1 : group.bundles },
-                                    (_, i) => (
-                                      <img
-                                        className="tomato-gold"
-                                        key={`gold-${i}`}
-                                        src={tomatoAssets[group.kind][1]}
-                                        width="20"
-                                        height="20"
-                                        alt=""
-                                        aria-hidden="true"
-                                      />
-                                    ),
-                                  )}
-                                  {group.bundles > 4 && (
-                                    <span className="quadrant-tomato-multiplier">
-                                      ×{group.bundles}
-                                    </span>
-                                  )}
-                                  {Array.from({ length: group.remainder }, (_, i) => (
-                                    <img
-                                      className="tomato-single"
-                                      key={i}
-                                      src={tomatoAssets[group.kind][0]}
-                                      width="18"
-                                      height="18"
-                                      alt=""
-                                      aria-hidden="true"
-                                    />
-                                  ))}
-                                </span>
-                              ))}
+                              <img
+                                src={count >= 5 ? standardGold : standardTomato}
+                                width="16"
+                                height="16"
+                                alt=""
+                                aria-hidden="true"
+                              />
+                              <span>{count}</span>
                             </div>
                           )}
                         </div>
@@ -491,10 +466,36 @@ export function QuadrantBoard({
                           <button
                             className="quadrant-pomo-start"
                             disabled={!timer.ready || !task.text.trim()}
-                            aria-label={`开始专注：${task.text}`}
-                            title="开始番茄专注"
+                            aria-label={`${active ? (timer.state.endsAt === null ? "继续专注" : "暂停专注") : "开始专注"}：${task.text}`}
+                            title={
+                              active
+                                ? `${timer.state.endsAt === null ? "短按继续" : "短按暂停"}，长按取消本轮`
+                                : "开始番茄专注"
+                            }
+                            onPointerDown={(event) => {
+                              if (event.button !== 0) return;
+                              clearLongPress();
+                              longPressHandled.current = false;
+                              if (!active) return;
+                              setHoldingTask(task.id);
+                              longPressTimer.current = window.setTimeout(() => {
+                                longPressHandled.current = true;
+                                clearLongPress();
+                                timer.reset("focus");
+                              }, 800);
+                            }}
+                            onPointerUp={clearLongPress}
+                            onPointerLeave={clearLongPress}
+                            onPointerCancel={clearLongPress}
+                            onContextMenu={(event) => event.preventDefault()}
                             onClick={() => {
-                              if (
+                              if (longPressHandled.current) {
+                                longPressHandled.current = false;
+                                return;
+                              }
+                              if (active) {
+                                timer.toggle();
+                              } else if (
                                 timer.state.mode === "focus" &&
                                 timer.state.sessionId &&
                                 timer.state.sessionTask?.id === task.id
@@ -507,12 +508,22 @@ export function QuadrantBoard({
                             }}
                           >
                             <img
-                              src={tomatoStart}
+                              src={actionTomato}
                               width="22"
                               height="22"
                               alt=""
                               aria-hidden="true"
                             />
+                            <span className="quadrant-tomato-action" aria-hidden="true">
+                              {active && timer.state.endsAt !== null ? (
+                                <Pause size={10} fill="currentColor" />
+                              ) : (
+                                <Play size={10} fill="currentColor" />
+                              )}
+                            </span>
+                            {holdingTask === task.id && (
+                              <span className="quadrant-hold-ring" aria-hidden="true" />
+                            )}
                           </button>
                         )}
                         <button

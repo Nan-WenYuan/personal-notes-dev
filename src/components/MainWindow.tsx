@@ -1,4 +1,5 @@
 import { useNoteCategoryDrag } from "../features/notes/useNoteCategoryDrag";
+import { FolderPlus, Bot, StickyNote, Inbox, Folder } from "lucide-react";
 import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -475,12 +476,12 @@ export function MainWindow({
   const [pinnedTileIds, setPinnedTileIds] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<string[]>([]);
   const [categorySortTarget, setCategorySortTarget] = useState<string | null>(null);
+  const [categorySortAfter, setCategorySortAfter] = useState(false);
   const categorySortQueue = useRef(Promise.resolve());
   const movingNotes = useRef(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<string>("");
-  const [showCategoryInput, setShowCategoryInput] = useState(false);
-  const [categoryInputValue, setCategoryInputValue] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
   const [noteMenuMode, setNoteMenuMode] = useState<"main" | "move">("main");
   const [renamingCategory, setRenamingCategory] = useState<string | null>(null);
   const [renameCategoryValue, setRenameCategoryValue] = useState("");
@@ -706,7 +707,19 @@ export function MainWindow({
   }, [searchQuery]);
 
   const categoryGroups = useMemo(
-    () => groupNotesByCategory(filteredNotes, [...categories, ""]),
+    () =>
+      groupNotesByCategory(filteredNotes, [
+        "Agent知识库",
+        "便签",
+        "",
+        ...categories.filter((category) => !["Agent知识库", "便签", ""].includes(category)),
+      ]).sort((a, b) => {
+        const rank = (category: string) => {
+          const index = ["Agent知识库", "便签", ""].indexOf(category);
+          return index < 0 ? 3 : index;
+        };
+        return rank(a.category) - rank(b.category);
+      }),
     [filteredNotes, categories],
   );
 
@@ -2003,40 +2016,78 @@ export function MainWindow({
     dragging: draggingCategory,
     beginDrag: beginCategoryDrag,
     consumeDragClick: consumeCategoryClick,
-  } = useNoteCategoryDrag((source, target) => {
-    if (!target || source === target) return;
-    const element = document.querySelector<HTMLElement>(
-      `[data-note-drop-category="${CSS.escape(target)}"] > .group\\/cat`,
-    );
-    const box = element?.getBoundingClientRect();
-    const after = box && draggingCategory ? draggingCategory.y > box.top + box.height / 2 : false;
-    const next = categories.filter((category) => category !== source);
-    const index = next.indexOf(target);
-    if (index < 0) return;
-    next.splice(index + (after ? 1 : 0), 0, source);
-    setCategories(next);
-    categorySortQueue.current = categorySortQueue.current
-      .catch(() => {})
-      .then(() => saveCategoryOrder(next))
-      .catch((error) => {
-        showToast(getErrorMessage(error));
-        void refreshNotes();
+  } = useNoteCategoryDrag(
+    (source, target, position) => {
+      if (
+        ["Agent知识库", "便签", ""].includes(source) ||
+        (target !== null && ["Agent知识库", "便签", ""].includes(target))
+      )
+        return;
+      if (!target || source === target) return;
+      const element = document.querySelector<HTMLElement>(
+        `[data-note-drop-category="${CSS.escape(target)}"] > .group\\/cat`,
+      );
+      const box = element?.getBoundingClientRect();
+      const after = box && position ? position.y > box.top + box.height / 2 : false;
+      const next = categories.filter((category) => category !== source);
+      const index = next.indexOf(target);
+      if (index < 0) return;
+      next.splice(index + (after ? 1 : 0), 0, source);
+      const previousPositions = new Map(
+        Array.from(document.querySelectorAll<HTMLElement>("[data-note-drop-category]")).map(
+          (element) => [element.dataset.noteDropCategory, element.getBoundingClientRect().top],
+        ),
+      );
+      setCategories(next);
+      requestAnimationFrame(() => {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        document.querySelectorAll<HTMLElement>("[data-note-drop-category]").forEach((element) => {
+          const previous = previousPositions.get(element.dataset.noteDropCategory);
+          if (previous === undefined) return;
+          const offset = previous - element.getBoundingClientRect().top;
+          if (Math.abs(offset) > 1)
+            element.animate(
+              [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
+              { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" },
+            );
+        });
       });
-  }, setCategorySortTarget);
+      categorySortQueue.current = categorySortQueue.current
+        .catch(() => {})
+        .then(() => saveCategoryOrder(next))
+        .catch((error) => {
+          showToast(getErrorMessage(error));
+          void refreshNotes();
+        });
+    },
+    (target, position) => {
+      setCategorySortTarget(target);
+      const header =
+        target !== null
+          ? document.querySelector<HTMLElement>(
+              `[data-note-drop-category="${CSS.escape(target)}"] > .group\\/cat`,
+            )
+          : null;
+      const box = header?.getBoundingClientRect();
+      setCategorySortAfter(!!(box && position && position.y > box.top + box.height / 2));
+    },
+  );
 
   const handleCreateCategory = async () => {
-    const name = categoryInputValue.trim();
-    if (!name) {
-      setShowCategoryInput(false);
-      return;
-    }
+    if (creatingCategory) return;
+    setCreatingCategory(true);
+    let name = "新建分类";
+    let suffix = 2;
+    while (categories.includes(name)) name = `新建分类 ${suffix++}`;
     try {
       await createCategory(name);
       await refreshNotes();
-      setShowCategoryInput(false);
-      setCategoryInputValue("");
+      setRenamingCategory(name);
+      setRenameCategoryValue(name);
     } catch (error) {
       showToast(getErrorMessage(error));
+    } finally {
+      setCreatingCategory(false);
     }
   };
 
@@ -2880,52 +2931,16 @@ export function MainWindow({
                   </button>
                   <button
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (showCategoryInput && categoryInputValue.trim()) {
-                        void handleCreateCategory();
-                        return;
-                      }
-                      setShowCategoryInput(true);
-                    }}
+                    onClick={() => void handleCreateCategory()}
+                    disabled={creatingCategory}
                     className="w-8 h-8 flex items-center justify-center rounded-md text-ink-ghost hover:text-bamboo hover:bg-bamboo/10 transition-colors cursor-pointer"
                     title={t("main.category.new", { defaultValue: "新建分类" })}
                     aria-label={t("main.category.new", { defaultValue: "新建分类" })}
                   >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                    >
-                      <path d="M12 5v14M5 12h14" />
-                    </svg>
+                    <FolderPlus size={18} strokeWidth={1.8} />
                   </button>
                 </div>
               </div>
-
-              {showCategoryInput && (
-                <div className="px-3 pb-2 shrink-0">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={categoryInputValue}
-                    onChange={(e) => setCategoryInputValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void handleCreateCategory();
-                      if (e.key === "Escape") {
-                        setShowCategoryInput(false);
-                        setCategoryInputValue("");
-                      }
-                    }}
-                    onBlur={() => void handleCreateCategory()}
-                    placeholder={t("main.category.placeholder", { defaultValue: "输入分类名…" })}
-                    className="w-full px-2.5 h-7 rounded-lg text-[12px] font-body text-ink bg-paper-warm/80 border border-paper-deep/40 focus:border-bamboo/30 placeholder:text-ink-ghost/60"
-                  />
-                </div>
-              )}
 
               <div className="flex-1 overflow-y-auto px-2 pb-2">
                 <div className="space-y-0.5">
@@ -2972,7 +2987,9 @@ export function MainWindow({
                     >
                       <TimerIcon />
                       <span className="text-[12px] whitespace-nowrap">
-                        {pomodoro.state.endsAt ? clockText(pomodoro.remaining) : "番茄钟"}
+                        {pomodoro.state.endsAt
+                          ? `${pomodoro.state.mode === "focus" ? "专注" : "休息"} ${clockText(pomodoro.remaining)}`
+                          : "番茄钟"}
                       </span>
                     </button>
                   </div>
@@ -3069,7 +3086,15 @@ export function MainWindow({
                       <div
                         key={group.category || "__uncategorized__"}
                         data-note-drop-category={group.category}
-                        className={`px-2 mb-0.5 ${categorySortTarget === group.category ? "ring-1 ring-bamboo/50 rounded-lg" : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
+                        data-default-category-boundary={
+                          group.category === "" &&
+                          categoryGroups.some(
+                            (item) => !["Agent知识库", "便签", ""].includes(item.category),
+                          )
+                            ? "true"
+                            : undefined
+                        }
+                        className={`relative px-2 mb-0.5 ${draggingCategory?.id === group.category ? "opacity-40" : ""} ${categorySortTarget === group.category && !["Agent知识库", "便签", ""].includes(group.category) && draggingCategory?.id !== group.category ? `category-sort-target ${categorySortAfter ? "category-sort-after" : ""}` : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
                       >
                         <div
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
@@ -3088,7 +3113,7 @@ export function MainWindow({
                           }}
                           onPointerDown={(event) => {
                             if ((event.target as HTMLElement).closest("input,button")) return;
-                            if (group.category)
+                            if (!["Agent知识库", "便签", ""].includes(group.category))
                               beginCategoryDrag(event, group.category, group.category);
                           }}
                           title="拖动调整分类顺序"
@@ -3129,32 +3154,22 @@ export function MainWindow({
                           >
                             <polyline points="9 18 15 12 9 6" />
                           </svg>
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="text-bamboo/50 shrink-0"
-                          >
+                          <span className="text-bamboo/50 shrink-0">
                             {group.category === "Agent知识库" ? (
-                              <>
-                                <rect x="4" y="7" width="16" height="13" rx="3" />
-                                <path d="M12 7V3M9 3h6M1 11v5M23 11v5M9 16h6" />
-                                <circle cx="8" cy="12" r="1" />
-                                <circle cx="16" cy="12" r="1" />
-                              </>
+                              <Bot size={13} strokeWidth={1.8} />
+                            ) : group.category === "便签" ? (
+                              <StickyNote size={13} strokeWidth={1.8} />
+                            ) : group.category === "" ? (
+                              <Inbox size={13} strokeWidth={1.8} />
                             ) : (
-                              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                              <Folder size={13} strokeWidth={1.8} />
                             )}
-                          </svg>
+                          </span>
                           {renamingCategory === group.category ? (
                             <input
                               type="text"
                               autoFocus
+                              onFocus={(e) => e.currentTarget.select()}
                               value={renameCategoryValue}
                               onChange={(e) => setRenameCategoryValue(e.target.value)}
                               onKeyDown={(e) => {
@@ -3262,7 +3277,7 @@ export function MainWindow({
 
                                     <div className="flex items-center justify-between min-w-0">
                                       <span
-                                        className={`min-w-0 text-[13px] font-display font-medium truncate pr-2 transition-colors ${
+                                        className={`min-w-0 text-[11px] font-display font-medium truncate pr-2 transition-colors ${
                                           isSelected ? "text-bamboo" : "text-ink-soft"
                                         }`}
                                       >
@@ -3554,24 +3569,31 @@ export function MainWindow({
                   </button>
                 </div>
               )}
-              <input
-                type="text"
-                value={title}
-                onChange={(event) => {
-                  setTitle(event.target.value);
-                  markDirty();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    if (richEditorRef.current) richEditorRef.current.focus();
-                    else contentRef.current?.focus();
-                  }
-                }}
-                placeholder={t("common.untitledNote", { defaultValue: "无标题笔记" })}
-                disabled={!selectedId}
-                className="w-full text-[20px] font-display font-bold text-ink placeholder:text-ink-ghost/50 tracking-wide disabled:opacity-60"
-              />
+              {!(
+                selectedNote?.category === "Agent知识库" &&
+                content.trimStart().split(/\r?\n/, 1)[0]?.replace(/^#\s+/, "").trim() ===
+                  title.trim() &&
+                /^#\s+/.test(content.trimStart())
+              ) && (
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(event) => {
+                    setTitle(event.target.value);
+                    markDirty();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      if (richEditorRef.current) richEditorRef.current.focus();
+                      else contentRef.current?.focus();
+                    }
+                  }}
+                  placeholder={t("common.untitledNote", { defaultValue: "无标题笔记" })}
+                  disabled={!selectedId}
+                  className="w-full text-[20px] font-display font-bold text-ink placeholder:text-ink-ghost/50 tracking-wide disabled:opacity-60"
+                />
+              )}
               <div className="flex items-center gap-3 mt-1.5">
                 <span className="text-[10px] text-ink-ghost font-mono tabular-nums truncate max-w-[200px]">
                   {selectedExternalFile

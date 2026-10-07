@@ -28,7 +28,7 @@
   isolation: isolate;
   overflow: hidden;
 }
-.quadrant-task-row > :not(.quadrant-task-progress) {
+.quadrant-task-row > :not(.quadrant-task-progress):not(.quadrant-task-tomatoes) {
   position: relative;
   z-index: 1;
 }
@@ -45,17 +45,35 @@
   background: color-mix(in srgb, var(--quadrant-color) 5%, transparent);
 }
 .quadrant-focus-status {
+  position: static;
+  order: 3;
+  margin-left: auto;
+  flex-shrink: 0;
+  height: 28px;
+  pointer-events: none;
+  opacity: 0.55;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 10px;
   color: var(--quadrant-color);
-  padding-bottom: 3px;
+  padding-bottom: 0;
+}
+.quadrant-focus-status > span {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .quadrant-focus-status button {
+  position: absolute;
+  right: -36px;
+  bottom: 1px;
+  flex-shrink: 0;
   display: grid;
   place-items: center;
-  width: 24px;
+  width: 28px;
   height: 22px;
   border-radius: 4px;
   cursor: pointer;
@@ -223,11 +241,13 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
   cursor: pointer;
 }
 .quadrant-pomo-start:hover {
-  background: #cf786520;
+  background: #cf786530;
 }
 .quadrant-pomo-start:disabled {
   opacity: 0.35;
@@ -235,22 +255,61 @@
 .quadrant-task-content {
   flex: 1;
   min-width: 0;
-}
-.quadrant-task-content > input {
-  width: 100%;
-  height: 28px;
-}
-.quadrant-task-tomatoes {
+  position: relative;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 6px;
+}
+.quadrant-task-content > input {
+  display: block;
+  field-sizing: content;
+  width: auto;
+  min-width: 2ch;
+  flex: 0 1 auto;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  height: 28px;
+  position: relative;
+  z-index: 1;
+}
+.quadrant-task-tomatoes {
+  position: static;
+  order: 2;
+  flex-shrink: 0;
+  max-width: 30%;
+  height: 20px;
+  overflow: hidden;
+  opacity: 0.8;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 4px;
-  padding: 0 0 3px;
+  padding: 0;
   pointer-events: auto;
 }
 .quadrant-task-tomatoes > img {
   flex-shrink: 0;
   opacity: 0.3;
+}
+.quadrant-tomato-count {
+  max-width: none;
+  opacity: 1;
+  color: #a86d60;
+  font-size: 11px;
+  font-weight: 600;
+}
+.quadrant-tomato-count > img {
+  opacity: 1;
+}
+.quadrant-tomato-count.is-gold {
+  color: #a97a19;
+}
+.quadrant-tomato-count.is-high {
+  color: #c45135;
+}
+.quadrant-tomato-count.is-high > img {
+  filter: sepia(0.4) saturate(3) hue-rotate(335deg);
 }
 .quadrant-tomato-bundle {
   position: relative;
@@ -339,6 +398,7 @@
   --pomodoro: #cf7865;
 }
 .quadrant-tomato-group {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -353,8 +413,54 @@
   object-fit: contain;
 }
 .quadrant-tomato-group .tomato-single {
-  opacity: 0.5;
+  opacity: 0.8;
+  width: 16px;
+  height: 16px;
 }
 .quadrant-tomato-group .tomato-gold {
   opacity: 0.75;
+  width: 18px;
+  height: 18px;
+}
+.quadrant-pomo-start {
+  position: relative;
+}
+.quadrant-tomato-action {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, calc(-50% + 2px));
+  width: 12px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  pointer-events: none;
+  line-height: 0;
+}
+.quadrant-tomato-action svg {
+  display: block;
+  transform: none;
+}
+.quadrant-tomato-action svg.lucide-play {
+  margin-left: 1px;
+}
+@property --hold-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes tomato-hold-fill {
+  to {
+    --hold-angle: 360deg;
+  }
+}
+.quadrant-hold-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(#cf7865 var(--hold-angle), #cf786526 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  animation: tomato-hold-fill 800ms linear forwards;
+  pointer-events: none;
 }

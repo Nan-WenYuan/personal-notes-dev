@@ -23,6 +23,7 @@ interface Props {
   imageBaseDir?: string;
   disabled?: boolean;
   fontSize?: number;
+  compactToolbar?: boolean;
   editorRef?: Ref<RichEditorHandle>;
   onError(message: string): void;
 }
@@ -87,7 +88,7 @@ export function RichEditor(props: Props) {
         value: latest.current.content,
         placeholder: "开始写作……",
         lang: "zh_CN",
-        toolbar: createRichToolbar(() => editor),
+        toolbar: createRichToolbar(() => editor, props.compactToolbar),
         toolbarConfig: { pin: true },
         customWysiwygToolbar: (type, toolbar) => {
           toolbar
@@ -238,7 +239,7 @@ export function RichEditor(props: Props) {
   }, [ready]);
   return (
     <div
-      className="rich-editor flex-1 min-h-0 min-w-0"
+      className={`rich-editor flex-1 min-h-0 min-w-0 ${props.compactToolbar ? "rich-editor-compact" : ""}`}
       style={{ fontSize: props.fontSize ?? 14 }}
       data-rich-editor="true"
       onPasteCapture={(event) => {

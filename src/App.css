@@ -820,3 +820,25 @@ input::placeholder {
 .category-body-inner {
   transition-property: none;
 }
+.category-sort-target::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-bamboo);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--color-bamboo) 35%, transparent);
+  z-index: 5;
+  pointer-events: none;
+}
+.category-sort-target.category-sort-after::before {
+  top: auto;
+  bottom: -2px;
+}
+[data-default-category-boundary="true"] {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ink-ghost) 25%, transparent);
+}
