@@ -4035,13 +4035,13 @@ export function MainWindow({
               {categoryMenu.category === "Agent知识库" &&
                 (
                   [
-                    ["复制接入说明", "setup"],
                     ["打开知识库目录", "open"],
+                    ["复制接入说明", "setup"],
                   ] as const
                 ).map(([label, action]) => (
                   <button
                     key={action}
-                    className="w-full text-left px-3 py-1.5 text-[12px] text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo cursor-pointer"
+                    className={`w-full text-left px-3 py-1.5 text-[12px] cursor-pointer ${action === "setup" ? "text-orange-600 hover:bg-orange-500/10 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300" : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"}`}
                     onClick={() =>
                       void (async () => {
                         setCategoryMenuClosing(true);
