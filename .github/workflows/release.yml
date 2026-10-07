@@ -1,54 +1,69 @@
-name: Publish portable release
+name: Publish desktop release
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  windows-portable:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check published release
-        id: existing
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github+json' }
-          $published = $false
-          try {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/v$version" -Headers $headers
-            $published = -not $release.draft
-            if ($published) {
-              $names = @($release.assets | ForEach-Object { $_.name })
-              if ("floral-notepaper_${version}_windows_x64_portable.exe" -notin $names -or 'update-manifest.json' -notin $names) { throw 'Published release is incomplete' }
-            }
-          } catch {
-            if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
-          }
-          "published=$($published.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          if ($published) { Write-Output "v$version already published; skip duplicate build and upload" }
       - uses: actions/setup-node@v4
-        if: steps.existing.outputs.published != 'true'
         with:
           node-version: "24"
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.existing.outputs.published != 'true'
+        with:
+          targets: aarch64-apple-darwin
       - run: npm ci
-        if: steps.existing.outputs.published != 'true'
-      - name: Build portable folder
-        if: steps.existing.outputs.published != 'true'
+      - run: npm test
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build Windows portable
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/build-portable.ps1 -Type R
-      - name: Publish EXE and checksum manifest
-        if: steps.existing.outputs.published != 'true'
-        shell: pwsh
+        run: |
+          ./scripts/build-portable.ps1 -Type R
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Copy-Item -LiteralPath '交付/花笺/花笺.exe' -Destination "release-assets/floral-notepaper_${version}_windows_x64_portable.exe"
+      - name: Build Apple Silicon application
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+        run: |
+          npm run tauri -- build --target aarch64-apple-darwin --bundles app
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/花笺.app"
+          codesign --verify --deep --strict "$APP"
+          test -x "$APP/Contents/MacOS/floral-notepaper"
+          mkdir -p release-assets
+          VERSION=$(node -p "require('./package.json').version")
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "release-assets/floral-notepaper_${VERSION}_macos_aarch64_app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}
+          path: release-assets/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish both platforms and update manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $package = Get-ChildItem -LiteralPath ./交付 -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          ./scripts/publish-github-release.ps1 -Executable (Join-Path $package.FullName '花笺.exe') -Target $env:GITHUB_SHA
+        run: python3 scripts/publish-desktop-release.py release-assets
