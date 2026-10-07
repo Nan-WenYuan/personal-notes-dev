@@ -6,7 +6,8 @@ $repository = 'Nan-WenYuan/personal-notes-dev'
 $version = (Get-Content (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
 $binary = Get-Item -LiteralPath $Executable
 if ($binary.VersionInfo.ProductVersion -ne $version) { throw 'Executable version differs from package.json' }
-$assetName = "floral-notepaper_${version}_windows_x64_portable.exe"
+$assetName = '花笺.exe'
+$encodedAssetName = [Uri]::EscapeDataString($assetName)
 $tag = "v$version"
 $temporaryDir = Join-Path $repoRoot 'Docs/临时/GitHub发布'
 New-Item -ItemType Directory -Path $temporaryDir -Force | Out-Null
@@ -18,7 +19,7 @@ $manifest = @{
     mandatory=$false; allowDowngrade=$false
     releaseNotes=$ReleaseNotes
     assets=@(@{ os='windows'; arch='x86_64'; kind='portable_exe'; name=$assetName; sha256=$hash; size=$binary.Length
-        githubUrl="https://github.com/$repository/releases/download/$tag/$assetName" })
+        githubUrl="https://github.com/$repository/releases/download/$tag/$encodedAssetName" })
 }
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 $token = $env:GITHUB_TOKEN
@@ -46,7 +47,7 @@ try {
         return
     }
     $body = @{ tag_name=$tag; target_commitish=$Target; name="花笺 $version 自用便携版"; draft=$true; prerelease=$false
-        body="$ReleaseNotes`n`n自用笔记软件开发。Windows x64 便携 EXE，无安装包、无压缩包。首次使用请将 EXE 重命名为花笺.exe，所需许可文本位于源码 LICENSE 与 src/assets/fonts。旧版首次切换只替换 EXE，保留配置和数据目录。1.4.0 起支持本仓库应用内更新。SHA256: $hash" } | ConvertTo-Json
+        body="$ReleaseNotes`n`n自用笔记软件开发。Windows x64 便携 EXE，无安装包、无压缩包。所需许可文本位于源码 LICENSE 与 src/assets/fonts。旧版首次切换只替换 EXE，保留配置和数据目录。1.4.0 起支持本仓库应用内更新。SHA256: $hash" } | ConvertTo-Json
     if ($existingRelease) {
         $release = $existingRelease
         foreach ($draftAsset in $release.assets) {
@@ -61,8 +62,9 @@ try {
     foreach ($asset in @(@{path=$binary.FullName;name=$assetName},@{path=$manifestPath;name='update-manifest.json'})) {
         Write-Output ('Uploading: ' + $asset.name)
         $curlFile = $asset.path.Replace('\', '\\').Replace('"', '\"')
+        $uploadName = [Uri]::EscapeDataString($asset.name)
         $curlConfig = @"
-url = "$uploadBase`?name=$($asset.name)"
+url = "$uploadBase`?name=$uploadName"
 request = "POST"
 header = "Authorization: Bearer $token"
 header = "Accept: application/vnd.github+json"

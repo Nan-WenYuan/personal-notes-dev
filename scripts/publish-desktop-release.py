@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import urllib.request
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,15 +21,20 @@ def main():
         ("windows", "x86_64", "portable_exe", "windows_x64_portable.exe"),
         ("macos", "aarch64", "app_zip", "macos_aarch64_app.zip"),
     ]:
-        name = f"floral-notepaper_{version}_{suffix}"
-        path = folder / name
+        source_name = f"floral-notepaper_{version}_{suffix}"
+        name = "花笺.exe" if platform == "windows" else "花笺-macOS-M系列.zip"
+        path = folder / source_name
+        if not path.exists():
+            path = folder / name
         if not path.is_file() or not path.stat().st_size:
             raise RuntimeError(f"Missing release asset: {name}")
         with path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         assets.append(dict(os=platform, arch=arch, kind=kind, name=name,
                            size=path.stat().st_size, sha256=digest,
-                           githubUrl=f"https://github.com/{repo}/releases/download/{tag}/{name}"))
+                           githubUrl=f"https://github.com/{repo}/releases/download/{tag}/{urllib.parse.quote(name)}"))
+        if path.name != name:
+            path.rename(folder / name)
     notes = "新增 Apple Silicon macOS 应用及应用内更新；Windows 便携版同步发布。Mac 使用 ad-hoc 签名，未经过 Apple 公证，尚需实机验证。Mac 解压后将花笺.app 放到应用程序目录，数据保存在用户目录。"
     manifest = dict(schemaVersion=1, appId="com.floral-notepaper.app", productName="花笺",
                     channel="stable", version=version, tag=tag,
@@ -63,7 +69,7 @@ def main():
             request("DELETE", existing["url"])
     for name in sorted(names):
         print(f"Uploading: {name}", flush=True)
-        request("POST", release["upload_url"].split("{")[0] + "?name=" + name,
+        request("POST", release["upload_url"].split("{")[0] + "?name=" + urllib.parse.quote(name),
                 (folder / name).read_bytes(), "application/octet-stream")
     request("PATCH", release["url"], dict(draft=False))
     print(f"Published: https://github.com/{repo}/releases/tag/{tag}")
