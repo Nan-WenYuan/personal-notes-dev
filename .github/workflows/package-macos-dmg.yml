@@ -1,0 +1,34 @@
+name: Package existing macOS build as DMG
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful macOS build run ID
+        required: true
+permissions:
+  actions: read
+  contents: read
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-macOS
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: source
+      - name: Create and verify DMG
+        run: |
+          mkdir -p staging output
+          ZIP=$(find source -name '*.zip' -print -quit)
+          test -n "$ZIP"
+          ditto -x -k "$ZIP" staging
+          codesign --verify --deep --strict staging/花笺.app
+          ln -s /Applications staging/Applications
+          hdiutil create -volname 花笺 -srcfolder staging -ov -format UDZO output/花笺-macOS-M系列.dmg
+          hdiutil verify output/花笺-macOS-M系列.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: output/*.dmg

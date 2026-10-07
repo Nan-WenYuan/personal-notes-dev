@@ -19,10 +19,10 @@ def main():
     assets = []
     for platform, arch, kind, suffix in [
         ("windows", "x86_64", "portable_exe", "windows_x64_portable.exe"),
-        ("macos", "aarch64", "app_zip", "macos_aarch64_app.zip"),
+        ("macos", "aarch64", "app_zip", "macos_aarch64.dmg"),
     ]:
         source_name = f"floral-notepaper_{version}_{suffix}"
-        name = "花笺.exe" if platform == "windows" else "花笺-macOS-M系列.zip"
+        name = "花笺.exe" if platform == "windows" else "花笺-macOS-M系列.dmg"
         path = folder / source_name
         if not path.exists():
             path = folder / name
@@ -35,7 +35,7 @@ def main():
                            githubUrl=f"https://github.com/{repo}/releases/download/{tag}/{urllib.parse.quote(name)}"))
         if path.name != name:
             path.rename(folder / name)
-    notes = "新增 Apple Silicon macOS 应用及应用内更新；Windows 便携版同步发布。Mac 使用 ad-hoc 签名，未经过 Apple 公证，尚需实机验证。Mac 解压后将花笺.app 放到应用程序目录，数据保存在用户目录。"
+    notes = "新增 Apple Silicon macOS DMG 及应用内更新；Windows 便携版同步发布。Mac 使用 ad-hoc 签名，未经过 Apple 公证，尚需实机验证。打开 DMG 后将花笺拖到应用程序目录，数据保存在用户目录。"
     manifest = dict(schemaVersion=1, appId="com.floral-notepaper.app", productName="花笺",
                     channel="stable", version=version, tag=tag,
                     publishedAt=datetime.now(timezone.utc).isoformat(), mandatory=False,

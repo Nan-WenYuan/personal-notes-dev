@@ -41,13 +41,16 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
           CARGO_PROFILE_RELEASE_STRIP: symbols
         run: |
-          npm run tauri -- build --target aarch64-apple-darwin --bundles app
+          npm run tauri -- build --target aarch64-apple-darwin --bundles app,dmg
           APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/花笺.app"
           codesign --verify --deep --strict "$APP"
           test -x "$APP/Contents/MacOS/floral-notepaper"
           mkdir -p release-assets
           VERSION=$(node -p "require('./package.json').version")
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "release-assets/floral-notepaper_${VERSION}_macos_aarch64_app.zip"
+          DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name '*.dmg' -type f -print -quit)
+          test -n "$DMG"
+          hdiutil verify "$DMG"
+          cp "$DMG" "release-assets/floral-notepaper_${VERSION}_macos_aarch64.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ runner.os }}
