@@ -48,11 +48,13 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
   useEffect(loadTasks, []);
   const today = dateKey(new Date(timer.now));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
+  const [durationMinutes, setDurationMinutes] = useState(25);
   const [editingRecord, setEditingRecord] = useState<FocusRecord | null>(null);
   const [formError, setFormError] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!settingsOpen && !editingRecord) return;
+    if (!settingsOpen && !editingRecord && !durationOpen) return;
     const previous = document.activeElement as HTMLElement | null;
     const root = modalRef.current;
     const focusable = () =>
@@ -67,6 +69,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
         event.preventDefault();
         event.stopPropagation();
         setSettingsOpen(false);
+        setDurationOpen(false);
         setEditingRecord(null);
       } else if (event.key === "Tab") {
         const items = focusable();
@@ -86,7 +89,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
       document.removeEventListener("keydown", onKey, true);
       previous?.focus();
     };
-  }, [settingsOpen, editingRecord]);
+  }, [settingsOpen, editingRecord, durationOpen]);
   const minutes = (list: FocusRecord[]) =>
     Math.round(list.reduce((sum, record) => sum + record.seconds, 0) / 60);
   const dateTimeInput = (value: number) => {
@@ -182,7 +185,20 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
               />
             </svg>
             <div>
-              <strong>{clockText(timer.remaining)}</strong>
+              <strong>
+                <button
+                  className="pomodoro-time-edit"
+                  disabled={!timer.ready || timer.state.mode !== "focus"}
+                  title="点击设置本次专注时长"
+                  aria-label="设置本次专注时长"
+                  onClick={() => {
+                    setDurationMinutes(Math.round(timer.state.sessionSeconds / 60));
+                    setDurationOpen(true);
+                  }}
+                >
+                  {clockText(timer.remaining)}
+                </button>
+              </strong>
               <span>
                 {timer.state.endsAt
                   ? timer.state.mode === "focus"
@@ -426,6 +442,68 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
           </div>
         </section>
       </div>
+      {durationOpen && (
+        <div
+          className="pomodoro-modal"
+          ref={modalRef}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDurationOpen(false);
+          }}
+        >
+          <form
+            className="pomodoro-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="设置本次专注时长"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (timer.setFocusDuration(durationMinutes)) setDurationOpen(false);
+            }}
+          >
+            <header>
+              <h2>本次专注时长</h2>
+              <button
+                type="button"
+                aria-label="关闭时长选择"
+                onClick={() => setDurationOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            <div className="pomodoro-duration-presets">
+              {[5, 15, 25, 45].map((minutes) => (
+                <button
+                  type="button"
+                  key={minutes}
+                  aria-pressed={durationMinutes === minutes}
+                  onClick={() => setDurationMinutes(minutes)}
+                >
+                  {minutes} 分钟
+                </button>
+              ))}
+            </div>
+            <label className="pomodoro-edit-field">
+              自定义分钟
+              <input
+                type="number"
+                required
+                min="1"
+                max="180"
+                step="1"
+                value={durationMinutes}
+                onChange={(event) => setDurationMinutes(Number(event.target.value))}
+              />
+            </label>
+            <p>仅设置本次时长，不修改默认设置。保存后点击开始专注。</p>
+            <footer>
+              <button type="button" onClick={() => setDurationOpen(false)}>
+                取消
+              </button>
+              <button type="submit">确定</button>
+            </footer>
+          </form>
+        </div>
+      )}
       {settingsOpen && (
         <div
           ref={modalRef}

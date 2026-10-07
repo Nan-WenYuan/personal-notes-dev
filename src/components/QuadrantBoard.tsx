@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { Archive, ArrowLeft, RotateCcw, Trash2, Pause, Play } from "lucide-react";
+import { clockText } from "../features/pomodoro/model";
+import { taskProgress } from "../features/pomodoro/taskProgress";
 import "./QuadrantBoard.css";
 import "./PomodoroBoard.css";
 import tomatoStart from "../assets/tomato-start-icon.png";
@@ -23,6 +26,7 @@ interface Task {
   text: string;
   quadrant: number;
   completed: boolean;
+  completedAt?: number;
 }
 const quadrants = [
   { title: "重要且紧急", hint: "立即处理", color: "#cb6868" },
@@ -47,6 +51,13 @@ export function QuadrantBoard({
   const [error, setError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [deleted, setDeleted] = useState<{ task: Task; index: number } | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [completedUndo, setCompletedUndo] = useState<Task | null>(null);
+  useEffect(() => {
+    if (!completedUndo) return;
+    const timeout = window.setTimeout(() => setCompletedUndo(null), 8000);
+    return () => window.clearTimeout(timeout);
+  }, [completedUndo]);
   const current = useRef(tasks);
   const revision = useRef(0);
   useEffect(() => {
@@ -178,8 +189,38 @@ export function QuadrantBoard({
           <h1 className="font-display text-xl font-bold text-ink">四象限</h1>
           <p className="text-xs text-ink-ghost mt-1">按重要与紧急安排任务</p>
         </div>
-        <span className="text-xs text-ink-ghost">{status}</span>
+        <div className="quadrant-header-actions">
+          <span className="text-xs text-ink-ghost">{status}</span>
+          <button onClick={() => setArchiveOpen(!archiveOpen)}>
+            {archiveOpen ? <ArrowLeft size={15} /> : <Archive size={15} />}
+            {archiveOpen
+              ? "返回四象限"
+              : `已完成 (${tasks.filter((task) => task.completed).length})`}
+          </button>
+        </div>
       </header>
+      {completedUndo && (
+        <div className="quadrant-undo" role="status">
+          已完成并归档“{completedUndo.text}”
+          <button
+            onClick={() => {
+              save(
+                current.current.map((task) =>
+                  task.id === completedUndo.id
+                    ? { ...task, completed: false, completedAt: undefined }
+                    : task,
+                ),
+              );
+              setCompletedUndo(null);
+            }}
+          >
+            撤销完成
+          </button>
+          <button aria-label="关闭完成提示" onClick={() => setCompletedUndo(null)}>
+            ×
+          </button>
+        </div>
+      )}
       {deleted && (
         <div className="quadrant-undo" role="status">
           已删除“{deleted.task.text || "空任务"}”
@@ -220,196 +261,320 @@ export function QuadrantBoard({
           )}
         </div>
       )}
-      <div className="quadrant-grid flex-1 min-h-0 overflow-auto grid grid-cols-1 md:grid-cols-2 auto-rows-fr">
-        {quadrants.map((quadrant, index) => {
-          const list = tasks.filter((task) => task.quadrant === index);
-          return (
-            <section
-              key={index}
-              style={{ "--quadrant-color": quadrant.color } as CSSProperties}
-              className="quadrant-card flex flex-col overflow-hidden"
-            >
-              <header
-                className="px-4 py-3 border-b border-paper-deep/30 flex items-center justify-between"
-                style={{ borderTop: `3px solid ${quadrant.color}` }}
-              >
-                <div>
-                  <h2 className="text-sm font-medium text-ink">{quadrant.title}</h2>
-                  <p className="text-[11px] text-ink-ghost mt-0.5">{quadrant.hint}</p>
-                </div>
-                <span className="text-xs text-ink-ghost">
-                  {list.filter((task) => !task.completed).length}
-                </span>
-              </header>
-              <div className="quadrant-tasks flex-1">
-                {!list.length && <p className="quadrant-empty">暂无任务</p>}
-                {list.map((task) => {
+      {archiveOpen ? (
+        <div className="quadrant-archive flex-1 min-h-0 overflow-auto">
+          <h2>已完成任务</h2>
+          <p className="quadrant-archive-hint">恢复后回到原象限，保留全部番茄记录。</p>
+          {!tasks.some((task) => task.completed) && (
+            <p className="quadrant-empty">暂无已完成任务</p>
+          )}
+          {[
+            ...new Set(
+              tasks
+                .filter((task) => task.completed)
+                .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+                .map((task) =>
+                  task.completedAt
+                    ? new Date(task.completedAt).toLocaleDateString("zh-CN")
+                    : "历史完成任务",
+                ),
+            ),
+          ].map((day) => (
+            <section key={day}>
+              <h3>{day}</h3>
+              {tasks
+                .filter(
+                  (task) =>
+                    task.completed &&
+                    (task.completedAt
+                      ? new Date(task.completedAt).toLocaleDateString("zh-CN")
+                      : "历史完成任务") === day,
+                )
+                .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+                .map((task) => {
                   const groups = summarizeTask(timer.state.records, task.id);
                   const count = groups.reduce((sum, group) => sum + group.count, 0);
                   const minutes = Math.round(
                     groups.reduce((sum, group) => sum + group.seconds, 0) / 60,
                   );
                   return (
-                    <div
-                      key={task.id}
-                      className="group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15"
-                    >
-                      <input
-                        aria-label={`完成任务：${task.text}`}
-                        type="checkbox"
-                        checked={task.completed}
-                        className="mt-1 accent-bamboo cursor-pointer"
-                        onChange={() => {
-                          if (!task.completed && !timer.finishTask(task.id)) return;
+                    <div className="quadrant-archive-row" key={task.id}>
+                      <div>
+                        <strong>{task.text}</strong>
+                        <p>
+                          {quadrants[task.quadrant]?.title} · {count} 个番茄 · {minutes} 分钟
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
                           save(
                             current.current.map((item) =>
-                              item.id === task.id ? { ...item, completed: !item.completed } : item,
+                              item.id === task.id
+                                ? { ...item, completed: false, completedAt: undefined }
+                                : item,
                             ),
                           );
-                        }}
-                      />
-                      <div className="quadrant-task-content">
-                        <input
-                          aria-label="任务内容"
-                          value={task.text}
-                          className={`flex-1 min-w-0 bg-transparent text-sm text-ink outline-none ${task.completed ? "line-through opacity-45" : ""}`}
-                          onChange={(event) => {
-                            timer.renameTask(task.id, event.target.value);
-                            save(
-                              current.current.map((item) =>
-                                item.id === task.id ? { ...item, text: event.target.value } : item,
-                              ),
-                            );
-                          }}
-                        />
-                        {count > 0 && (
-                          <div
-                            className="quadrant-task-tomatoes"
-                            role="img"
-                            aria-label={`已完成 ${count} 个番茄，累计 ${minutes} 分钟`}
-                            title={`已完成 ${count} 个番茄 · 累计 ${minutes} 分钟`}
-                          >
-                            {groups.map((group) => (
-                              <span
-                                className="quadrant-tomato-group"
-                                key={group.kind}
-                                title={`${tomatoLabels[group.kind]}：${group.count}次 · ${group.detail} · 累计${group.seconds / 60}分钟`}
-                              >
-                                {Array.from(
-                                  { length: group.bundles > 4 ? 1 : group.bundles },
-                                  (_, i) => (
-                                    <img
-                                      className="tomato-gold"
-                                      key={`gold-${i}`}
-                                      src={tomatoAssets[group.kind][1]}
-                                      width="20"
-                                      height="20"
-                                      alt=""
-                                      aria-hidden="true"
-                                    />
-                                  ),
-                                )}
-                                {group.bundles > 4 && (
-                                  <span className="quadrant-tomato-multiplier">
-                                    ×{group.bundles}
-                                  </span>
-                                )}
-                                {Array.from({ length: group.remainder }, (_, i) => (
-                                  <img
-                                    className="tomato-single"
-                                    key={i}
-                                    src={tomatoAssets[group.kind][0]}
-                                    width="18"
-                                    height="18"
-                                    alt=""
-                                    aria-hidden="true"
-                                  />
-                                ))}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {!task.completed && (
-                        <button
-                          className="quadrant-pomo-start"
-                          disabled={!timer.ready || !task.text.trim()}
-                          aria-label={`开始专注：${task.text}`}
-                          title="开始番茄专注"
-                          onClick={() => {
-                            if (
-                              timer.state.mode === "focus" &&
-                              timer.state.sessionId &&
-                              timer.state.sessionTask?.id === task.id
-                            ) {
-                              onStartTask({ id: task.id, title: task.text });
-                            } else {
-                              setFocusMinutes(timer.state.settings.focusMinutes);
-                              setFocusTask(task);
-                            }
-                          }}
-                        >
-                          <img src={tomatoStart} width="22" height="22" alt="" aria-hidden="true" />
-                        </button>
-                      )}
-                      <button
-                        aria-label={`删除任务：${task.text}`}
-                        title="删除任务"
-                        className="text-ink-ghost opacity-50 hover:opacity-100 hover:text-red-400 cursor-pointer px-1"
-                        onClick={() => {
-                          if (timer.finishTask(task.id)) {
-                            setDeleted({
-                              task,
-                              index: current.current.findIndex((item) => item.id === task.id),
-                            });
-                            save(current.current.filter((item) => item.id !== task.id));
-                          }
+                          setCompletedUndo(null);
                         }}
                       >
-                        ×
+                        <RotateCcw size={14} />
+                        恢复
+                      </button>
+                      <button
+                        aria-label={`删除任务：${task.text}`}
+                        onClick={() => {
+                          setDeleted({
+                            task,
+                            index: current.current.findIndex((item) => item.id === task.id),
+                          });
+                          save(current.current.filter((item) => item.id !== task.id));
+                        }}
+                      >
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   );
                 })}
-              </div>
-              <form
-                className="m-3 mt-0 flex gap-2 border-t border-paper-deep/30 pt-3"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const text = drafts[index].trim();
-                  if (!text || !ready) return;
-                  save([
-                    ...current.current,
-                    { id: crypto.randomUUID(), text, quadrant: index, completed: false },
-                  ]);
-                  setDrafts((value) => value.map((draft, i) => (i === index ? "" : draft)));
-                }}
-              >
-                <input
-                  aria-label={`添加${quadrant.title}任务`}
-                  disabled={!ready}
-                  value={drafts[index]}
-                  onChange={(event) =>
-                    setDrafts((value) =>
-                      value.map((draft, i) => (i === index ? event.target.value : draft)),
-                    )
-                  }
-                  placeholder="添加任务…"
-                  className="flex-1 min-w-0 text-sm bg-transparent text-ink placeholder:text-ink-ghost outline-none"
-                />
-                <button
-                  type="submit"
-                  aria-label={`添加${quadrant.title}任务按钮`}
-                  disabled={!ready || !drafts[index].trim()}
-                  className="cursor-pointer disabled:opacity-30"
-                >
-                  +
-                </button>
-              </form>
             </section>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="quadrant-grid flex-1 min-h-0 overflow-auto grid grid-cols-1 md:grid-cols-2 auto-rows-fr">
+          {quadrants.map((quadrant, index) => {
+            const list = tasks.filter((task) => task.quadrant === index && !task.completed);
+            return (
+              <section
+                key={index}
+                style={{ "--quadrant-color": quadrant.color } as CSSProperties}
+                className="quadrant-card flex flex-col overflow-hidden"
+              >
+                <header
+                  className="px-4 py-3 border-b border-paper-deep/30 flex items-center justify-between"
+                  style={{ borderTop: `3px solid ${quadrant.color}` }}
+                >
+                  <div>
+                    <h2 className="text-sm font-medium text-ink">{quadrant.title}</h2>
+                    <p className="text-[11px] text-ink-ghost mt-0.5">{quadrant.hint}</p>
+                  </div>
+                  <span className="text-xs text-ink-ghost">
+                    {list.filter((task) => !task.completed).length}
+                  </span>
+                </header>
+                <div className="quadrant-tasks flex-1">
+                  {!list.length && <p className="quadrant-empty">暂无任务</p>}
+                  {list.map((task) => {
+                    const sessionProgress = taskProgress(timer.state, timer.remaining, task.id);
+                    const active = sessionProgress !== null;
+                    const progress = sessionProgress ?? 0;
+                    const groups = summarizeTask(timer.state.records, task.id);
+                    const count = groups.reduce((sum, group) => sum + group.count, 0);
+                    const minutes = Math.round(
+                      groups.reduce((sum, group) => sum + group.seconds, 0) / 60,
+                    );
+                    return (
+                      <div
+                        key={task.id}
+                        className={`quadrant-task-row group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15 ${active ? "is-focusing" : ""}`}
+                      >
+                        {active && (
+                          <div
+                            className="quadrant-task-progress"
+                            style={{ width: `${progress}%` }}
+                            role="progressbar"
+                            aria-label="本轮专注进度"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.round(progress)}
+                          />
+                        )}
+                        <input
+                          aria-label={`完成任务：${task.text}`}
+                          type="checkbox"
+                          checked={task.completed}
+                          className="mt-1 accent-bamboo cursor-pointer"
+                          onChange={() => {
+                            if (!task.completed && !timer.finishTask(task.id)) return;
+                            setDeleted(null);
+                            setCompletedUndo(task);
+                            save(
+                              current.current.map((item) =>
+                                item.id === task.id
+                                  ? { ...item, completed: true, completedAt: Date.now() }
+                                  : item,
+                              ),
+                            );
+                          }}
+                        />
+                        <div className="quadrant-task-content">
+                          <input
+                            aria-label="任务内容"
+                            value={task.text}
+                            className={`flex-1 min-w-0 bg-transparent text-sm text-ink outline-none ${task.completed ? "line-through opacity-45" : ""}`}
+                            onChange={(event) => {
+                              timer.renameTask(task.id, event.target.value);
+                              save(
+                                current.current.map((item) =>
+                                  item.id === task.id
+                                    ? { ...item, text: event.target.value }
+                                    : item,
+                                ),
+                              );
+                            }}
+                          />
+                          {active && (
+                            <div className="quadrant-focus-status">
+                              <span>
+                                {timer.state.endsAt === null ? "已暂停" : "专注中"} ·{" "}
+                                {clockText(timer.remaining)} · {Math.floor(progress)}%
+                              </span>
+                              <button
+                                onClick={timer.toggle}
+                                aria-label={timer.state.endsAt === null ? "继续专注" : "暂停专注"}
+                              >
+                                {timer.state.endsAt === null ? (
+                                  <Play size={12} />
+                                ) : (
+                                  <Pause size={12} />
+                                )}
+                              </button>
+                            </div>
+                          )}
+                          {count > 0 && (
+                            <div
+                              className="quadrant-task-tomatoes"
+                              role="img"
+                              aria-label={`已完成 ${count} 个番茄，累计 ${minutes} 分钟`}
+                              title={`已完成 ${count} 个番茄 · 累计 ${minutes} 分钟`}
+                            >
+                              {groups.map((group) => (
+                                <span
+                                  className="quadrant-tomato-group"
+                                  key={group.kind}
+                                  title={`${tomatoLabels[group.kind]}：${group.count}次 · ${group.detail} · 累计${group.seconds / 60}分钟`}
+                                >
+                                  {Array.from(
+                                    { length: group.bundles > 4 ? 1 : group.bundles },
+                                    (_, i) => (
+                                      <img
+                                        className="tomato-gold"
+                                        key={`gold-${i}`}
+                                        src={tomatoAssets[group.kind][1]}
+                                        width="20"
+                                        height="20"
+                                        alt=""
+                                        aria-hidden="true"
+                                      />
+                                    ),
+                                  )}
+                                  {group.bundles > 4 && (
+                                    <span className="quadrant-tomato-multiplier">
+                                      ×{group.bundles}
+                                    </span>
+                                  )}
+                                  {Array.from({ length: group.remainder }, (_, i) => (
+                                    <img
+                                      className="tomato-single"
+                                      key={i}
+                                      src={tomatoAssets[group.kind][0]}
+                                      width="18"
+                                      height="18"
+                                      alt=""
+                                      aria-hidden="true"
+                                    />
+                                  ))}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {!task.completed && (
+                          <button
+                            className="quadrant-pomo-start"
+                            disabled={!timer.ready || !task.text.trim()}
+                            aria-label={`开始专注：${task.text}`}
+                            title="开始番茄专注"
+                            onClick={() => {
+                              if (
+                                timer.state.mode === "focus" &&
+                                timer.state.sessionId &&
+                                timer.state.sessionTask?.id === task.id
+                              ) {
+                                onStartTask({ id: task.id, title: task.text });
+                              } else {
+                                setFocusMinutes(timer.state.settings.focusMinutes);
+                                setFocusTask(task);
+                              }
+                            }}
+                          >
+                            <img
+                              src={tomatoStart}
+                              width="22"
+                              height="22"
+                              alt=""
+                              aria-hidden="true"
+                            />
+                          </button>
+                        )}
+                        <button
+                          aria-label={`删除任务：${task.text}`}
+                          title="删除任务"
+                          className="text-ink-ghost opacity-50 hover:opacity-100 hover:text-red-400 cursor-pointer px-1"
+                          onClick={() => {
+                            if (timer.finishTask(task.id)) {
+                              setDeleted({
+                                task,
+                                index: current.current.findIndex((item) => item.id === task.id),
+                              });
+                              setCompletedUndo(null);
+                              save(current.current.filter((item) => item.id !== task.id));
+                            }
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <form
+                  className="m-3 mt-0 flex gap-2 border-t border-paper-deep/30 pt-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const text = drafts[index].trim();
+                    if (!text || !ready) return;
+                    save([
+                      ...current.current,
+                      { id: crypto.randomUUID(), text, quadrant: index, completed: false },
+                    ]);
+                    setDrafts((value) => value.map((draft, i) => (i === index ? "" : draft)));
+                  }}
+                >
+                  <input
+                    aria-label={`添加${quadrant.title}任务`}
+                    disabled={!ready}
+                    value={drafts[index]}
+                    onChange={(event) =>
+                      setDrafts((value) =>
+                        value.map((draft, i) => (i === index ? event.target.value : draft)),
+                      )
+                    }
+                    placeholder="添加任务…"
+                    className="flex-1 min-w-0 text-sm bg-transparent text-ink placeholder:text-ink-ghost outline-none"
+                  />
+                  <button
+                    type="submit"
+                    aria-label={`添加${quadrant.title}任务按钮`}
+                    disabled={!ready || !drafts[index].trim()}
+                    className="cursor-pointer disabled:opacity-30"
+                  >
+                    +
+                  </button>
+                </form>
+              </section>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

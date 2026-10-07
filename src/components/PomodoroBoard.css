@@ -595,3 +595,37 @@
   margin-left: 8px;
   text-decoration: underline;
 }
+.pomodoro-time-edit {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.pomodoro-time-edit:hover:not(:disabled) {
+  color: var(--pomodoro);
+}
+.pomodoro-time-edit:disabled {
+  cursor: default;
+}
+.pomodoro-time-edit:focus-visible {
+  outline: 2px solid var(--pomodoro);
+  outline-offset: 6px;
+}
+.pomodoro-duration-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 16px 0;
+}
+.pomodoro-duration-presets button {
+  padding: 8px 3px;
+  border: 1px solid var(--color-paper-deep);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.pomodoro-duration-presets button[aria-pressed="true"] {
+  color: var(--pomodoro);
+  border-color: var(--pomodoro);
+  background: #cf786520;
+}

@@ -111,9 +111,7 @@ export function usePomodoro() {
         startedAt: value.startedAt ?? time,
         sessionId: value.sessionId ?? crypto.randomUUID(),
         sessionTask: value.sessionId ? value.sessionTask : value.activeTask,
-        sessionSeconds: value.sessionId
-          ? value.sessionSeconds
-          : modeSeconds(value.mode, value.settings),
+        sessionSeconds: value.sessionId ? value.sessionSeconds : remaining,
         lastSeen: time,
       });
     }
@@ -188,6 +186,27 @@ export function usePomodoro() {
     } else persist({ ...value, activeTask: task });
     return true;
   };
+  const setFocusDuration = (minutes: number) => {
+    if (!ready || !Number.isInteger(minutes) || minutes < 1 || minutes > 180) return false;
+    const value = finishTimer(current.current, Date.now());
+    if (
+      value.sessionId &&
+      value.mode === "focus" &&
+      !window.confirm("修改时长会放弃本轮未完成的专注，重新准备计时，继续吗？")
+    )
+      return false;
+    persist({
+      ...value,
+      mode: "focus",
+      remaining: minutes * 60,
+      sessionSeconds: minutes * 60,
+      endsAt: null,
+      startedAt: null,
+      sessionId: null,
+      sessionTask: null,
+    });
+    return true;
+  };
   const finishTask = (id: string) => {
     if (current.current.activeTask?.id !== id) return true;
     const value = finishTimer(current.current, Date.now());
@@ -247,6 +266,7 @@ export function usePomodoro() {
     toggle,
     startTask,
     selectTask,
+    setFocusDuration,
     finishTask,
     renameTask,
     reset,

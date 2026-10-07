@@ -3313,10 +3313,7 @@ export function MainWindow({
               <QuadrantBoard
                 timer={pomodoro}
                 onStartTask={(task, minutes) => {
-                  if (pomodoro.startTask(task, minutes)) {
-                    setQuadrantsOpen(false);
-                    setPomodoroOpen(true);
-                  }
+                  pomodoro.startTask(task, minutes);
                 }}
               />
             )}

@@ -1,6 +1,107 @@
 .quadrant-board {
   font-family: var(--font-body);
 }
+.quadrant-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.quadrant-header-actions button,
+.quadrant-archive-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-paper-deep);
+  border-radius: 6px;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  background: var(--color-paper);
+  font-size: 12px;
+}
+.quadrant-header-actions button:hover,
+.quadrant-archive-row button:hover {
+  background: var(--color-paper-deep);
+}
+.quadrant-task-row {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.quadrant-task-row > :not(.quadrant-task-progress) {
+  position: relative;
+  z-index: 1;
+}
+.quadrant-task-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--quadrant-color) 22%, transparent);
+  pointer-events: none;
+  z-index: 0;
+  transition: width 0.45s linear;
+}
+.quadrant-task-row.is-focusing {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--quadrant-color) 45%, transparent);
+  background: color-mix(in srgb, var(--quadrant-color) 5%, transparent);
+}
+.quadrant-focus-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--quadrant-color);
+  padding-bottom: 3px;
+}
+.quadrant-focus-status button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--quadrant-color) 12%, transparent);
+}
+.quadrant-archive {
+  padding: 8px 28px 28px;
+}
+.quadrant-archive h2 {
+  font-size: 17px;
+  color: var(--color-ink);
+}
+.quadrant-archive-hint {
+  font-size: 12px;
+  color: var(--color-ink-ghost);
+  margin: 6px 0 22px;
+}
+.quadrant-archive h3 {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  margin: 20px 0 8px;
+}
+.quadrant-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-paper-deep);
+  border-radius: 8px;
+}
+.quadrant-archive-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.quadrant-archive-row strong {
+  display: block;
+  font-size: 13px;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.quadrant-archive-row p {
+  font-size: 11px;
+  color: var(--color-ink-ghost);
+  margin-top: 5px;
+}
 .quadrant-board > header {
   padding: 20px 28px 16px;
   border-bottom: 0;

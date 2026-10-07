@@ -363,6 +363,12 @@ struct QuadrantTask {
     text: String,
     quadrant: u8,
     completed: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "completedAt"
+    )]
+    completed_at: Option<u64>,
 }
 
 #[tauri::command]
