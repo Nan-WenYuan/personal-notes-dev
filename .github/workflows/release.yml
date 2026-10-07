@@ -3,6 +3,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      include_macos:
+        description: Also publish the macOS test build
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -13,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: ${{ fromJSON(inputs.include_macos && '["windows-latest","macos-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -69,4 +74,4 @@ jobs:
       - name: Publish both platforms and update manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/publish-desktop-release.py release-assets
+        run: python3 scripts/publish-desktop-release.py release-assets ${{ inputs.include_macos && '--include-mac' || '' }}

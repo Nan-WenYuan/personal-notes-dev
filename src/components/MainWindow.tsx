@@ -469,6 +469,7 @@ export function MainWindow({
     createAboutUpdateReminderState(null),
   );
   const [settingsConfig, setSettingsConfig] = useState<AppConfig | null>(initialConfig ?? null);
+  const [skillInstallPrompt, setSkillInstallPrompt] = useState<string | null>(null);
   const [savedDataDir, setSavedDataDir] = useState<string | null>(initialConfig?.dataDir ?? null);
   const [noteTransitionKey, setNoteTransitionKey] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -4042,7 +4043,7 @@ export function MainWindow({
                 (
                   [
                     ["打开知识库目录", "open"],
-                    ["复制技能安装提示词", "setup"],
+                    ["查看技能安装提示词", "setup"],
                   ] as const
                 ).map(([label, action]) => (
                   <button
@@ -4060,10 +4061,9 @@ export function MainWindow({
                             setup: action === "setup",
                           });
                           {
-                            await writeText(
+                            setSkillInstallPrompt(
                               `请为当前 AI 开发工具创建并安装一个“开发知识库”技能，使用该工具支持的技能格式和安装位置；如果不支持技能，请说明并提供等效的项目规则。\n知识库目录：${path}\n先读取该目录的 AGENTS.md 和 .agent-index.md，再创建技能。技能应规定：开发前按需搜索、查阅相关笔记，不加载全部知识库；开发后只沉淀经过验证且可复用的结论，优先更新已有主题，没有新知识就不写。直接读写 UTF-8 Markdown，不修改软件索引；修改前重新读取文件，避免覆盖他人内容。遵循用户当前要求和项目规范，不保存凭据或私人数据。\n知识库路径集中配置，迁移时只需修改一处。技能中保存使用流程，具体经验保留在知识库笔记里。安装完成后说明安装位置和调用方式。`,
                             );
-                            showToast("技能安装提示词已复制", "success");
                           }
                           await refreshNotes();
                         } catch (error) {
@@ -4099,6 +4099,53 @@ export function MainWindow({
               )}
             </div>
           )}
+        </div>
+      )}
+      {skillInstallPrompt !== null && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/25 flex items-center justify-center p-6"
+          onClick={() => setSkillInstallPrompt(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="技能安装提示词"
+            className="w-full max-w-xl bg-cloud text-ink rounded-xl border border-paper-deep p-4 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                setSkillInstallPrompt(null);
+              }
+            }}
+          >
+            <h2 className="text-sm font-medium mb-3">技能安装提示词</h2>
+            <textarea
+              autoFocus
+              aria-label="提示词内容"
+              value={skillInstallPrompt}
+              onChange={(event) => setSkillInstallPrompt(event.target.value)}
+              className="w-full h-64 resize-none rounded-lg border border-paper-deep bg-paper p-3 text-xs leading-relaxed outline-none"
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                className="px-3 py-1.5 text-xs rounded-lg hover:bg-paper-deep cursor-pointer"
+                onClick={() => setSkillInstallPrompt(null)}
+              >
+                关闭
+              </button>
+              <button
+                className="px-3 py-1.5 text-xs rounded-lg bg-bamboo text-cloud cursor-pointer"
+                onClick={() =>
+                  void writeText(skillInstallPrompt)
+                    .then(() => showToast("技能安装提示词已复制", "success"))
+                    .catch((error) => showToast(getErrorMessage(error)))
+                }
+              >
+                复制提示词
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

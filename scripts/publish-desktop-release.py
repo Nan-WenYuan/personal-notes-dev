@@ -17,10 +17,12 @@ def main():
     tag = f"v{version}"
     folder = Path(sys.argv[1])
     assets = []
-    for platform, arch, kind, suffix in [
+    platforms = [
         ("windows", "x86_64", "portable_exe", "windows_x64_portable.exe"),
-        ("macos", "aarch64", "app_zip", "macos_aarch64.dmg"),
-    ]:
+    ]
+    if "--include-mac" in sys.argv:
+        platforms.append(("macos", "aarch64", "app_zip", "macos_aarch64.dmg"))
+    for platform, arch, kind, suffix in platforms:
         source_name = f"floral-notepaper_{version}_{suffix}"
         name = "Huajian.exe" if platform == "windows" else "Huajian-macOS.dmg"
         path = folder / source_name
@@ -36,6 +38,8 @@ def main():
         if path.name != name:
             path.rename(folder / name)
     notes = "新增 Apple Silicon macOS DMG 及应用内更新；Windows 便携版同步发布。Mac 使用 ad-hoc 签名，未经过 Apple 公证，尚需实机验证。打开 DMG 后将花笺拖到应用程序目录，数据保存在用户目录。"
+    if "--include-mac" not in sys.argv:
+        notes = "Windows 便携版更新，直接运行 Huajian.exe；应用内更新只替换程序并保留数据。"
     manifest = dict(schemaVersion=1, appId="com.floral-notepaper.app", productName="花笺",
                     channel="stable", version=version, tag=tag,
                     publishedAt=datetime.now(timezone.utc).isoformat(), mandatory=False,
