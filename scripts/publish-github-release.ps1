@@ -6,7 +6,7 @@ $repository = 'Nan-WenYuan/personal-notes-dev'
 $version = (Get-Content (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
 $binary = Get-Item -LiteralPath $Executable
 if ($binary.VersionInfo.ProductVersion -ne $version) { throw 'Executable version differs from package.json' }
-$assetName = '花笺.exe'
+$assetName = 'Huajian.exe'
 $encodedAssetName = [Uri]::EscapeDataString($assetName)
 $tag = "v$version"
 $temporaryDir = Join-Path $repoRoot 'Docs/临时/GitHub发布'

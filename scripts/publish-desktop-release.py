@@ -22,7 +22,7 @@ def main():
         ("macos", "aarch64", "app_zip", "macos_aarch64.dmg"),
     ]:
         source_name = f"floral-notepaper_{version}_{suffix}"
-        name = "花笺.exe" if platform == "windows" else "花笺-macOS-M系列.dmg"
+        name = "Huajian.exe" if platform == "windows" else "Huajian-macOS.dmg"
         path = folder / source_name
         if not path.exists():
             path = folder / name
