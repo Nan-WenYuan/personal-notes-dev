@@ -3260,9 +3260,9 @@ export function MainWindow({
                                       }`}
                                     />
 
-                                    <div className="flex items-baseline justify-between mb-0.5">
+                                    <div className="flex items-center justify-between min-w-0">
                                       <span
-                                        className={`text-[13px] font-display font-medium truncate pr-2 transition-colors ${
+                                        className={`min-w-0 text-[13px] font-display font-medium truncate pr-2 transition-colors ${
                                           isSelected ? "text-bamboo" : "text-ink-soft"
                                         }`}
                                       >
@@ -3270,19 +3270,6 @@ export function MainWindow({
                                       </span>
                                       <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">
                                         {formatShortDate(note.updatedAt)}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
-                                        {formatTime(note.updatedAt)}
-                                      </span>
-                                      <span className="text-[10px] text-ink-ghost/40">·</span>
-                                      <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
-                                        {t("common.wordCount", {
-                                          count: note.wordCount,
-                                          defaultValue: "{{count}} 字",
-                                        })}
                                       </span>
                                     </div>
                                   </div>
@@ -4036,7 +4023,7 @@ export function MainWindow({
                 (
                   [
                     ["打开知识库目录", "open"],
-                    ["复制接入说明", "setup"],
+                    ["复制技能安装提示词", "setup"],
                   ] as const
                 ).map(([label, action]) => (
                   <button
@@ -4055,9 +4042,9 @@ export function MainWindow({
                           });
                           {
                             await writeText(
-                              `本项目使用共享 Agent 知识库：${path}\n开发前读取该目录的 AGENTS.md 和 .agent-index.md，按需查阅相关笔记；开发后沉淀经过验证且可复用的经验，优先更新已有主题。直接读写 UTF-8 Markdown，不修改软件索引。遵循用户当前要求和本项目规范。`,
+                              `请为当前 AI 开发工具创建并安装一个“开发知识库”技能，使用该工具支持的技能格式和安装位置；如果不支持技能，请说明并提供等效的项目规则。\n知识库目录：${path}\n先读取该目录的 AGENTS.md 和 .agent-index.md，再创建技能。技能应规定：开发前按需搜索、查阅相关笔记，不加载全部知识库；开发后只沉淀经过验证且可复用的结论，优先更新已有主题，没有新知识就不写。直接读写 UTF-8 Markdown，不修改软件索引；修改前重新读取文件，避免覆盖他人内容。遵循用户当前要求和项目规范，不保存凭据或私人数据。\n知识库路径集中配置，迁移时只需修改一处。技能中保存使用流程，具体经验保留在知识库笔记里。安装完成后说明安装位置和调用方式。`,
                             );
-                            showToast("接入说明已复制", "success");
+                            showToast("技能安装提示词已复制", "success");
                           }
                           await refreshNotes();
                         } catch (error) {
