@@ -1943,6 +1943,11 @@ pub(crate) fn mark_app_exiting(app: &AppHandle) {
         state.allow_exit();
     }
 }
+pub(crate) fn cancel_app_exiting(app: &AppHandle) {
+    if let Some(state) = app.try_state::<RuntimeState>() {
+        state.is_exiting.store(false, Ordering::SeqCst);
+    }
+}
 
 #[cfg(desktop)]
 fn setup_autostart_plugin(app: &AppHandle) -> tauri::Result<()> {

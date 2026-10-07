@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { CSSProperties } from "react";
 import "./QuadrantBoard.css";
+import "./PomodoroBoard.css";
+import tomatoStart from "../assets/tomato-start-icon.png";
+import shortTomato from "../assets/tomatoes/short.png";
+import shortGold from "../assets/tomatoes/short-gold.png";
+import standardTomato from "../assets/tomatoes/standard.png";
+import standardGold from "../assets/tomatoes/standard-gold.png";
+import longTomato from "../assets/tomatoes/long.png";
+import longGold from "../assets/tomatoes/long-gold.png";
+import { summarizeTask, tomatoLabels } from "../features/pomodoro/taskSummary";
+const tomatoAssets = {
+  short: [shortTomato, shortGold],
+  standard: [standardTomato, standardGold],
+  long: [longTomato, longGold],
+};
+import type { usePomodoro } from "../features/pomodoro/usePomodoro";
+import { loadQuadrants, saveQuadrants, retryQuadrants } from "../features/pomodoro/quadrantStorage";
 
 interface Task {
   id: string;
@@ -16,18 +31,27 @@ const quadrants = [
   { title: "不重要不紧急", hint: "有空再做", color: "#719781" },
 ];
 
-export function QuadrantBoard() {
+export function QuadrantBoard({
+  timer,
+  onStartTask,
+}: {
+  timer: ReturnType<typeof usePomodoro>;
+  onStartTask: (task: { id: string; title: string }, minutes?: number) => void;
+}) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [drafts, setDrafts] = useState(["", "", "", ""]);
+  const [focusTask, setFocusTask] = useState<Task | null>(null);
+  const [focusMinutes, setFocusMinutes] = useState(timer.state.settings.focusMinutes);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("正在加载…");
   const [error, setError] = useState("");
-  const queue = useRef(Promise.resolve());
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [deleted, setDeleted] = useState<{ task: Task; index: number } | null>(null);
   const current = useRef(tasks);
   const revision = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    invoke<Task[]>("quadrants_load")
+    loadQuadrants<Task[]>()
       .then((value) => {
         if (cancelled) return;
         current.current = value;
@@ -44,7 +68,7 @@ export function QuadrantBoard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
   const save = (next: Task[]) => {
     const version = ++revision.current;
     current.current = next;
@@ -52,10 +76,8 @@ export function QuadrantBoard() {
     setStatus("保存中…");
     setError("");
     // Writes remain ordered and finish even when the user switches to a note.
-    queue.current = queue.current
-      .catch(() => {})
-      .then(async () => {
-        await invoke("quadrants_save", { tasks: next });
+    void saveQuadrants(next)
+      .then(() => {
         if (revision.current === version) setStatus("已保存");
       })
       .catch(() => {
@@ -70,6 +92,87 @@ export function QuadrantBoard() {
       className="quadrant-board absolute inset-0 z-10 bg-paper flex flex-col"
       aria-label="四象限任务面板"
     >
+      {focusTask && (
+        <div
+          className="pomodoro-modal"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setFocusTask(null);
+            }
+            if (event.key === "Tab") {
+              const controls = Array.from(
+                event.currentTarget.querySelectorAll<HTMLElement>("button, input"),
+              );
+              const first = controls[0],
+                last = controls[controls.length - 1];
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+              }
+            }
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFocusTask(null);
+          }}
+        >
+          <form
+            className="pomodoro-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="选择专注时长"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!Number.isInteger(focusMinutes) || focusMinutes < 1 || focusMinutes > 180) return;
+              onStartTask({ id: focusTask.id, title: focusTask.text }, focusMinutes);
+              setFocusTask(null);
+            }}
+          >
+            <header>
+              <h2>选择专注时长</h2>
+              <button type="button" aria-label="关闭时长选择" onClick={() => setFocusTask(null)}>
+                ×
+              </button>
+            </header>
+            <p>{focusTask.text}</p>
+            <div className="quadrant-focus-presets">
+              {[5, 15, 25, 45].map((minutes) => (
+                <button
+                  type="button"
+                  key={minutes}
+                  aria-pressed={focusMinutes === minutes}
+                  onClick={() => setFocusMinutes(minutes)}
+                >
+                  {minutes} 分钟
+                </button>
+              ))}
+            </div>
+            <label className="pomodoro-edit-field">
+              自定义分钟
+              <input
+                autoFocus
+                type="number"
+                required
+                min="1"
+                max="180"
+                step="1"
+                value={focusMinutes}
+                onChange={(event) => setFocusMinutes(Number(event.target.value))}
+              />
+            </label>
+            <p>仅用于本次专注，不改变默认时长。</p>
+            <footer>
+              <button type="button" onClick={() => setFocusTask(null)}>
+                取消
+              </button>
+              <button type="submit">开始专注</button>
+            </footer>
+          </form>
+        </div>
+      )}
       <header className="px-6 py-5 border-b border-paper-deep/30 flex items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold text-ink">四象限</h1>
@@ -77,12 +180,42 @@ export function QuadrantBoard() {
         </div>
         <span className="text-xs text-ink-ghost">{status}</span>
       </header>
+      {deleted && (
+        <div className="quadrant-undo" role="status">
+          已删除“{deleted.task.text || "空任务"}”
+          <button
+            onClick={() => {
+              const next = [...current.current];
+              next.splice(Math.min(deleted.index, next.length), 0, deleted.task);
+              save(next);
+              setDeleted(null);
+            }}
+          >
+            撤销删除
+          </button>
+          <button aria-label="关闭删除提示" onClick={() => setDeleted(null)}>
+            ×
+          </button>
+        </div>
+      )}
       {error && (
         <div role="alert" className="px-6 py-2 text-sm text-red-400">
           {error}
           {ready && (
             <button className="ml-3 underline cursor-pointer" onClick={() => save(current.current)}>
               重试保存
+            </button>
+          )}
+          {!ready && (
+            <button
+              className="ml-3 underline cursor-pointer"
+              onClick={() => {
+                void retryQuadrants()
+                  .then(() => setLoadAttempt((n) => n + 1))
+                  .catch(() => setError("保存仍失败，请检查磁盘后重试"));
+              }}
+            >
+              重试加载
             </button>
           )}
         </div>
@@ -108,48 +241,136 @@ export function QuadrantBoard() {
                   {list.filter((task) => !task.completed).length}
                 </span>
               </header>
-              <div className="quadrant-tasks flex-1 space-y-1">
+              <div className="quadrant-tasks flex-1">
                 {!list.length && <p className="quadrant-empty">暂无任务</p>}
-                {list.map((task) => (
-                  <div
-                    key={task.id}
-                    className="group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15"
-                  >
-                    <input
-                      aria-label={`完成任务：${task.text}`}
-                      type="checkbox"
-                      checked={task.completed}
-                      className="mt-1 accent-bamboo cursor-pointer"
-                      onChange={() =>
-                        save(
-                          current.current.map((item) =>
-                            item.id === task.id ? { ...item, completed: !item.completed } : item,
-                          ),
-                        )
-                      }
-                    />
-                    <input
-                      aria-label="任务内容"
-                      value={task.text}
-                      className={`flex-1 min-w-0 bg-transparent text-sm text-ink outline-none ${task.completed ? "line-through opacity-45" : ""}`}
-                      onChange={(event) =>
-                        save(
-                          current.current.map((item) =>
-                            item.id === task.id ? { ...item, text: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
-                    <button
-                      aria-label={`删除任务：${task.text}`}
-                      title="删除任务"
-                      className="text-ink-ghost opacity-50 hover:opacity-100 hover:text-red-400 cursor-pointer px-1"
-                      onClick={() => save(current.current.filter((item) => item.id !== task.id))}
+                {list.map((task) => {
+                  const groups = summarizeTask(timer.state.records, task.id);
+                  const count = groups.reduce((sum, group) => sum + group.count, 0);
+                  const minutes = Math.round(
+                    groups.reduce((sum, group) => sum + group.seconds, 0) / 60,
+                  );
+                  return (
+                    <div
+                      key={task.id}
+                      className="group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15"
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                      <input
+                        aria-label={`完成任务：${task.text}`}
+                        type="checkbox"
+                        checked={task.completed}
+                        className="mt-1 accent-bamboo cursor-pointer"
+                        onChange={() => {
+                          if (!task.completed && !timer.finishTask(task.id)) return;
+                          save(
+                            current.current.map((item) =>
+                              item.id === task.id ? { ...item, completed: !item.completed } : item,
+                            ),
+                          );
+                        }}
+                      />
+                      <div className="quadrant-task-content">
+                        <input
+                          aria-label="任务内容"
+                          value={task.text}
+                          className={`flex-1 min-w-0 bg-transparent text-sm text-ink outline-none ${task.completed ? "line-through opacity-45" : ""}`}
+                          onChange={(event) => {
+                            timer.renameTask(task.id, event.target.value);
+                            save(
+                              current.current.map((item) =>
+                                item.id === task.id ? { ...item, text: event.target.value } : item,
+                              ),
+                            );
+                          }}
+                        />
+                        {count > 0 && (
+                          <div
+                            className="quadrant-task-tomatoes"
+                            role="img"
+                            aria-label={`已完成 ${count} 个番茄，累计 ${minutes} 分钟`}
+                            title={`已完成 ${count} 个番茄 · 累计 ${minutes} 分钟`}
+                          >
+                            {groups.map((group) => (
+                              <span
+                                className="quadrant-tomato-group"
+                                key={group.kind}
+                                title={`${tomatoLabels[group.kind]}：${group.count}次 · ${group.detail} · 累计${group.seconds / 60}分钟`}
+                              >
+                                {Array.from(
+                                  { length: group.bundles > 4 ? 1 : group.bundles },
+                                  (_, i) => (
+                                    <img
+                                      className="tomato-gold"
+                                      key={`gold-${i}`}
+                                      src={tomatoAssets[group.kind][1]}
+                                      width="20"
+                                      height="20"
+                                      alt=""
+                                      aria-hidden="true"
+                                    />
+                                  ),
+                                )}
+                                {group.bundles > 4 && (
+                                  <span className="quadrant-tomato-multiplier">
+                                    ×{group.bundles}
+                                  </span>
+                                )}
+                                {Array.from({ length: group.remainder }, (_, i) => (
+                                  <img
+                                    className="tomato-single"
+                                    key={i}
+                                    src={tomatoAssets[group.kind][0]}
+                                    width="18"
+                                    height="18"
+                                    alt=""
+                                    aria-hidden="true"
+                                  />
+                                ))}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {!task.completed && (
+                        <button
+                          className="quadrant-pomo-start"
+                          disabled={!timer.ready || !task.text.trim()}
+                          aria-label={`开始专注：${task.text}`}
+                          title="开始番茄专注"
+                          onClick={() => {
+                            if (
+                              timer.state.mode === "focus" &&
+                              timer.state.sessionId &&
+                              timer.state.sessionTask?.id === task.id
+                            ) {
+                              onStartTask({ id: task.id, title: task.text });
+                            } else {
+                              setFocusMinutes(timer.state.settings.focusMinutes);
+                              setFocusTask(task);
+                            }
+                          }}
+                        >
+                          <img src={tomatoStart} width="22" height="22" alt="" aria-hidden="true" />
+                        </button>
+                      )}
+                      <button
+                        aria-label={`删除任务：${task.text}`}
+                        title="删除任务"
+                        className="text-ink-ghost opacity-50 hover:opacity-100 hover:text-red-400 cursor-pointer px-1"
+                        onClick={() => {
+                          if (timer.finishTask(task.id)) {
+                            setDeleted({
+                              task,
+                              index: current.current.findIndex((item) => item.id === task.id),
+                            });
+                            save(current.current.filter((item) => item.id !== task.id));
+                          }
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
               <form
                 className="m-3 mt-0 flex gap-2 border-t border-paper-deep/30 pt-3"

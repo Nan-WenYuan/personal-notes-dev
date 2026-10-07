@@ -1,6 +1,7 @@
 pub mod desktop;
 pub mod json_io;
 pub mod locales;
+mod pomodoro;
 pub mod services;
 pub mod updater;
 
@@ -8,6 +9,23 @@ use locales::Locale;
 use services::notes::{default_store, AppConfig, AppError, Note, NoteMetadata, SaveNoteRequest};
 use std::{env, fs, io::Write, path::PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
+static EXIT_SAVE_GUARD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static EXIT_SAVE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[tauri::command]
+fn app_exit_save_guard_ready() {
+    EXIT_SAVE_GUARD.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+#[tauri::command]
+fn app_exit_save_report(app: AppHandle, proceed: bool) {
+    EXIT_SAVE_PENDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    if proceed {
+        EXIT_SAVE_GUARD.store(false, std::sync::atomic::Ordering::SeqCst);
+        app.exit(0);
+    } else {
+        desktop::cancel_app_exiting(&app);
+        let _ = desktop::show_main_window(&app);
+    }
+}
 
 #[tauri::command]
 fn app_name() -> Result<String, AppError> {
@@ -638,6 +656,9 @@ pub fn run() {
             categories_save_order,
             quadrants_load,
             quadrants_save,
+            pomodoro::pomodoro_load,
+            pomodoro::pomodoro_save,
+            pomodoro::pomodoro_alert,
             app_name,
             notes_list,
             notes_get,
@@ -684,11 +705,32 @@ pub fn run() {
             updater::commands::update_install,
             updater::commands::update_install_prepare_report,
             updater::commands::update_cancel,
-            take_startup_file
+            take_startup_file,
+            app_exit_save_guard_ready,
+            app_exit_save_report
         ])
         .build(context)
         .expect("error while building tauri application")
         .run(move |_app_handle, _event| {
+            if let tauri::RunEvent::ExitRequested { ref api, .. } = _event {
+                if EXIT_SAVE_GUARD.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    if !EXIT_SAVE_PENDING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        if let Err(error) =
+                            _app_handle.emit_to("main", "app://prepare-exit-save", ())
+                        {
+                            EXIT_SAVE_PENDING.store(false, std::sync::atomic::Ordering::SeqCst);
+                            desktop::cancel_app_exiting(_app_handle);
+                            eprintln!("failed to request task save: {error}");
+                        }
+                    }
+                }
+            }
+            if matches!(_event, tauri::RunEvent::Exit) {
+                if let Err(error) = pomodoro::pause_on_exit() {
+                    eprintln!("failed to pause focus timer: {error}");
+                }
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen {
                 has_visible_windows,

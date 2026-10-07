@@ -339,12 +339,13 @@ fn data_dir_from_notes_dir(notes_dir: &str) -> PathBuf {
     path.to_path_buf()
 }
 
-const DATA_DIR_ITEMS: [&str; 7] = [
+const DATA_DIR_ITEMS: [&str; 8] = [
     "metadata.json",
     "notes",
     "images",
     "backgrounds",
     "四象限.json",
+    "番茄钟.json",
     ".agent-knowledge-initialized",
     "分类排序.json",
 ];

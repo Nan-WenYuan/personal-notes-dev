@@ -1,6 +1,6 @@
 [package]
 name = "floral-notepaper"
-version = "1.6.0"
+version = "1.7.0"
 description = "Personal development edition for local notes and knowledge management"
 authors = ["Nan-WenYuan", "Achilng"]
 repository = "https://github.com/Nan-WenYuan/personal-notes-dev"
@@ -53,10 +53,12 @@ windows-sys = { version = "0.59", features = [
   "Win32_Storage_FileSystem",
   "Win32_Storage_Packaging_Appx",
   "Win32_System_Console",
+  "Win32_System_Diagnostics_Debug",
   "Win32_System_DataExchange",
   "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

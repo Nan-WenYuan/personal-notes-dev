@@ -11,10 +11,6 @@ export interface NoteContextMenuItem {
 export function getNoteContextMenuItems(translate: TFunction = t): NoteContextMenuItem[] {
   return [
     {
-      action: "localize",
-      label: translate("noteMenu.localizeImages", { defaultValue: "网络图片转为本地" }),
-    },
-    {
       action: "reveal",
       label: translate("noteMenu.reveal", { defaultValue: "在资源管理器中显示" }),
     },
@@ -25,6 +21,10 @@ export function getNoteContextMenuItems(translate: TFunction = t): NoteContextMe
     {
       action: "move",
       label: translate("noteMenu.moveToCategory", { defaultValue: "移动到分类…" }),
+    },
+    {
+      action: "localize",
+      label: translate("noteMenu.localizeImages", { defaultValue: "网络图片转为本地" }),
     },
     {
       action: "delete",

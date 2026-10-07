@@ -77,6 +77,11 @@ import { cleanUnusedImages, saveImageFromPath, saveImageFromUrl } from "../featu
 import { remoteImageUrls, replaceRemoteImages } from "../features/images/localizeMarkdown";
 import { remapNoteImageLinks } from "../features/images/noteImagePaths";
 import { QuadrantBoard } from "./QuadrantBoard";
+import { PomodoroBoard, TimerIcon } from "./PomodoroBoard";
+import { usePomodoro } from "../features/pomodoro/usePomodoro";
+import { flushQuadrants } from "../features/pomodoro/quadrantStorage";
+import { invoke } from "@tauri-apps/api/core";
+import { clockText } from "../features/pomodoro/model";
 import { useImagePaste, insertTextAtCursor } from "../features/images/useImagePaste";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
 import type { ExternalFile, Note, NoteMetadata } from "../features/notes/types";
@@ -419,6 +424,30 @@ export function MainWindow({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [content, setContent] = useState("");
   const [quadrantsOpen, setQuadrantsOpen] = useState(false);
+  const [pomodoroOpen, setPomodoroOpen] = useState(false);
+  const pomodoro = usePomodoro();
+  useEffect(() => {
+    let cancelled = false;
+    const subscription = listen("app://prepare-exit-save", () => {
+      void Promise.all([pomodoro.flush(), flushQuadrants()])
+        .then(() => invoke("app_exit_save_report", { proceed: true }))
+        .catch(() => {
+          showToast("任务或番茄钟保存失败，请重试保存后退出");
+          void invoke("app_exit_save_report", { proceed: false });
+        });
+    }).then(async (unlisten) => {
+      if (cancelled) {
+        unlisten();
+        return () => {};
+      }
+      await invoke("app_exit_save_guard_ready");
+      return unlisten;
+    });
+    return () => {
+      cancelled = true;
+      void subscription.then((unlisten) => unlisten());
+    };
+  }, []);
   const localizingImages = useRef(false);
   const [title, setTitle] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -674,7 +703,7 @@ export function MainWindow({
   }, [searchQuery]);
 
   const categoryGroups = useMemo(
-    () => groupNotesByCategory(filteredNotes, categories),
+    () => groupNotesByCategory(filteredNotes, [...categories, ""]),
     [filteredNotes, categories],
   );
 
@@ -693,6 +722,7 @@ export function MainWindow({
     (note: Note) => {
       setHoveredId(null);
       setQuadrantsOpen(false);
+      setPomodoroOpen(false);
       setActiveCategory(note.category);
       setSelectedNoteIds((current) => (current.size ? current : new Set([note.id])));
       if (!selectionAnchor.current) selectionAnchor.current = note.id;
@@ -1290,6 +1320,8 @@ export function MainWindow({
   useEffect(() => {
     const unlisten = listen<UpdateInstallPrepareRequest>("update://prepare-install", (event) => {
       const respond = async () => {
+        await pomodoro.flush();
+        await flushQuadrants();
         const windowLabel = windowLabelRef.current;
         // 无未保存修改时直接上报就绪：避免排进 saveQueueRef，被正在执行的
         // 防抖自动保存拖住、不必要地延迟安装准备响应
@@ -1365,10 +1397,15 @@ export function MainWindow({
     settingsConfig?.externalFileAutoSave,
   ]);
 
-  const handleNewNote = async () => {
-    await saveCurrentNote();
+  const handleNewNote = async (category = activeCategory) => {
+    if (!(await saveCurrentNote())) return;
     try {
-      const note = await createNote({ title: "", content: "", category: activeCategory });
+      const note = await createNote({ title: "", content: "", category });
+      setCollapsedCategories((current) => {
+        const next = new Set(current);
+        next.delete(category);
+        return next;
+      });
       setHoveredId(null);
       setSelectedNoteIds(new Set([note.id]));
       selectionAnchor.current = note.id;
@@ -1578,6 +1615,7 @@ export function MainWindow({
     setSelectedNoteIds(new Set());
     selectionAnchor.current = null;
     setQuadrantsOpen(false);
+    setPomodoroOpen(false);
     setActiveCategory("");
     if (id === selectedId) return;
     setDeleteConfirm(false);
@@ -2316,7 +2354,9 @@ export function MainWindow({
   };
 
   const handleClose = () => {
-    void closeCurrentWindow();
+    void Promise.all([pomodoro.flush(), flushQuadrants()])
+      .then(() => closeCurrentWindow())
+      .catch(() => showToast("任务或番茄钟保存失败，请先重试保存再退出"));
   };
   const aboutButtonLabel = t("settings.update.title", { defaultValue: "更新" });
   const aboutButtonExpanded = aboutUpdateReminder.showText;
@@ -2416,7 +2456,7 @@ export function MainWindow({
               —
             </span>
             <span className="text-[11px] text-ink-faint font-body truncate max-w-[240px] leading-none translate-y-px">
-              {(quadrantsOpen ? "四象限" : title) ||
+              {(pomodoroOpen ? "番茄钟" : quadrantsOpen ? "四象限" : title) ||
                 t("common.untitledNote", { defaultValue: "无标题笔记" })}
             </span>
           </div>
@@ -2661,7 +2701,7 @@ export function MainWindow({
 
               <div className="px-3 pb-2 shrink-0 space-y-1">
                 <button
-                  onClick={handleNewNote}
+                  onClick={() => void handleNewNote("")}
                   className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] font-body text-bamboo hover:bg-bamboo-mist/60 transition-all cursor-pointer group"
                 >
                   <svg
@@ -2718,26 +2758,24 @@ export function MainWindow({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() =>
                       setCollapsedCategories(
-                        new Set(
-                          [...categories, ...notes.map((note) => note.category)].filter(Boolean),
-                        ),
+                        new Set([...categories, "", ...notes.map((note) => note.category)]),
                       )
                     }
-                    className="text-ink-ghost hover:text-bamboo transition-colors cursor-pointer"
+                    className="w-8 h-8 flex items-center justify-center rounded-md text-ink-ghost hover:text-bamboo hover:bg-bamboo/10 transition-colors cursor-pointer"
                     title="收起所有文件夹"
                     aria-label="收起所有文件夹"
                   >
                     <svg
-                      width="12"
-                      height="12"
+                      width="18"
+                      height="18"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2.5"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <path d="m7 11 5-5 5 5M7 18l5-5 5 5" />
+                      <path d="m3 9 3-3 3 3M6 6v12M12 6h9M12 12h9M12 18h9" />
                     </svg>
                   </button>
                   <button
@@ -2749,12 +2787,13 @@ export function MainWindow({
                       }
                       setShowCategoryInput(true);
                     }}
-                    className="text-[10px] text-ink-ghost hover:text-bamboo transition-colors cursor-pointer"
+                    className="w-8 h-8 flex items-center justify-center rounded-md text-ink-ghost hover:text-bamboo hover:bg-bamboo/10 transition-colors cursor-pointer"
                     title={t("main.category.new", { defaultValue: "新建分类" })}
+                    aria-label={t("main.category.new", { defaultValue: "新建分类" })}
                   >
                     <svg
-                      width="12"
-                      height="12"
+                      width="18"
+                      height="18"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -2790,31 +2829,53 @@ export function MainWindow({
 
               <div className="flex-1 overflow-y-auto px-2 pb-2">
                 <div className="space-y-0.5">
-                  <button
-                    onClick={() =>
-                      void (async () => {
-                        if (!(await saveCurrentNote())) return;
-                        clearCurrentNote();
-                        setActiveCategory("");
-                        setQuadrantsOpen(true);
-                      })()
-                    }
-                    className={`w-full flex items-center gap-2 px-3 h-8 mb-1 rounded-lg border text-left transition-colors cursor-pointer ${quadrantsOpen ? "border-cyan-600/40 bg-cyan-500/25" : "border-cyan-600/25 bg-cyan-500/15 hover:bg-cyan-500/20"}`}
-                  >
-                    <svg
-                      className="quadrant-entry-ink"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
+                  <div className="grid grid-cols-2 gap-1.5 mb-1">
+                    <button
+                      onClick={() =>
+                        void (async () => {
+                          if (!(await saveCurrentNote())) return;
+                          clearCurrentNote();
+                          setActiveCategory("");
+                          setQuadrantsOpen(true);
+                          setPomodoroOpen(false);
+                        })()
+                      }
+                      className={`min-w-0 flex items-center gap-2 px-3 h-8 rounded-lg border text-left transition-colors cursor-pointer ${quadrantsOpen ? "border-cyan-600/40 bg-cyan-500/25" : "border-cyan-600/25 bg-cyan-500/15 hover:bg-cyan-500/20"}`}
                     >
-                      <rect x="3" y="3" width="18" height="18" rx="4" />
-                      <path d="M12 3v18M3 12h18" />
-                    </svg>
-                    <span className="text-[12px] quadrant-entry-ink">四象限</span>
-                  </button>
+                      <svg
+                        className="quadrant-entry-ink"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="4" />
+                        <path d="M12 3v18M3 12h18" />
+                      </svg>
+                      <span className="text-[12px] quadrant-entry-ink">四象限</span>
+                    </button>
+                    <button
+                      className="pomodoro-entry min-w-0 flex items-center gap-2 px-3 h-8 rounded-lg border text-left transition-colors cursor-pointer"
+                      aria-pressed={pomodoroOpen}
+                      title="番茄钟"
+                      onClick={() =>
+                        void (async () => {
+                          if (!(await saveCurrentNote())) return;
+                          clearCurrentNote();
+                          setActiveCategory("");
+                          setQuadrantsOpen(false);
+                          setPomodoroOpen(true);
+                        })()
+                      }
+                    >
+                      <TimerIcon />
+                      <span className="text-[12px] whitespace-nowrap">
+                        {pomodoro.state.endsAt ? clockText(pomodoro.remaining) : "番茄钟"}
+                      </span>
+                    </button>
+                  </div>
                   {externalFiles.length > 0 && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] text-ink-ghost/50 font-mono tracking-wider uppercase">
@@ -2902,118 +2963,11 @@ export function MainWindow({
                   )}
 
                   {categoryGroups.map((group: CategoryGroup) => {
-                    if (!group.category) {
-                      return (
-                        <div
-                          key="__uncategorized__"
-                          data-note-drop-category=""
-                          className={`rounded-lg transition-all duration-200 ${
-                            dragOverCategory === "" ? "bg-bamboo/10 ring-1 ring-bamboo/20" : ""
-                          }`}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                            setDragOverCategory("");
-                          }}
-                          onDragLeave={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                              setDragOverCategory(null);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            setDragOverCategory(null);
-                            const noteId = e.dataTransfer.getData("text/plain");
-                            if (noteId) void handleMoveNote(noteId, "");
-                          }}
-                        >
-                          {group.notes.map((note) => {
-                            const isSelected = note.id === selectedId;
-                            const isHovered = note.id === hoveredId;
-                            return (
-                              <div
-                                key={note.id}
-                                data-note-id={note.id}
-                                tabIndex={0}
-                                data-multi-selected={
-                                  selectedNoteIds.has(note.id) ? "true" : undefined
-                                }
-                                aria-current={isSelected ? "true" : undefined}
-                                onPointerDown={(event) => {
-                                  if (
-                                    event.ctrlKey ||
-                                    event.metaKey ||
-                                    event.shiftKey ||
-                                    heldSelectionKeys.current.ctrl ||
-                                    heldSelectionKeys.current.shift
-                                  ) {
-                                    event.preventDefault();
-                                    handleNoteSelection(event, note.id);
-                                    modifierPointerSelection.current = true;
-                                    return;
-                                  }
-                                  modifierPointerSelection.current = false;
-                                  beginNoteDrag(event, note.id, getDisplayTitle(note, t));
-                                }}
-                                onClick={(event) => {
-                                  if (modifierPointerSelection.current) {
-                                    modifierPointerSelection.current = false;
-                                    return;
-                                  }
-                                  handleNoteSelection(event, note.id);
-                                }}
-                                onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
-                                onMouseEnter={() => setHoveredId(note.id)}
-                                onMouseLeave={() => setHoveredId(null)}
-                                className={`w-full text-left rounded-xl px-3 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
-                                  isSelected
-                                    ? "bg-bamboo-mist/70"
-                                    : isHovered
-                                      ? "bg-paper-warm/70"
-                                      : "bg-transparent"
-                                }`}
-                              >
-                                <div
-                                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
-                                    isSelected ? "h-5 opacity-100" : "h-0 opacity-0"
-                                  }`}
-                                />
-                                <div className="flex items-baseline justify-between mb-0.5">
-                                  <span
-                                    className={`text-[13px] font-display font-medium truncate pr-2 transition-colors ${
-                                      isSelected ? "text-bamboo" : "text-ink-soft"
-                                    }`}
-                                  >
-                                    {getDisplayTitle(note, t)}
-                                  </span>
-                                  <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">
-                                    {formatShortDate(note.updatedAt)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
-                                    {formatTime(note.updatedAt)}
-                                  </span>
-                                  <span className="text-[10px] text-ink-ghost/40">·</span>
-                                  <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
-                                    {t("common.wordCount", {
-                                      count: note.wordCount,
-                                      defaultValue: "{{count}} 字",
-                                    })}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    }
-
                     const isCollapsed = collapsedCategories.has(group.category);
 
                     return (
                       <div
-                        key={group.category}
+                        key={group.category || "__uncategorized__"}
                         data-note-drop-category={group.category}
                         className={`px-2 mb-0.5 ${categorySortTarget === group.category ? "ring-1 ring-bamboo/50 rounded-lg" : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
                       >
@@ -3034,7 +2988,8 @@ export function MainWindow({
                           }}
                           onPointerDown={(event) => {
                             if ((event.target as HTMLElement).closest("input,button")) return;
-                            beginCategoryDrag(event, group.category, group.category);
+                            if (group.category)
+                              beginCategoryDrag(event, group.category, group.category);
                           }}
                           title="拖动调整分类顺序"
                           onContextMenu={(e) => {
@@ -3113,7 +3068,8 @@ export function MainWindow({
                             />
                           ) : (
                             <span className="text-[11px] text-bamboo/70 font-medium truncate">
-                              {group.category}
+                              {group.category ||
+                                t("main.category.uncategorized", { defaultValue: "未分类" })}
                             </span>
                           )}
                           <span className="text-[9px] text-bamboo/40 font-mono ml-auto shrink-0">
@@ -3266,7 +3222,18 @@ export function MainWindow({
           )}
 
           <div className="flex-1 flex flex-col min-w-0 relative">
-            {quadrantsOpen && <QuadrantBoard />}
+            {quadrantsOpen && (
+              <QuadrantBoard
+                timer={pomodoro}
+                onStartTask={(task, minutes) => {
+                  if (pomodoro.startTask(task, minutes)) {
+                    setQuadrantsOpen(false);
+                    setPomodoroOpen(true);
+                  }
+                }}
+              />
+            )}
+            {pomodoroOpen && <PomodoroBoard timer={pomodoro} />}
             <div className="flex items-center justify-between px-4 h-10 border-b border-paper-deep/20 shrink-0 bg-paper/20">
               <div className="flex items-center gap-1">
                 <button
@@ -3905,21 +3872,36 @@ export function MainWindow({
               <button
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
+                  const category = categoryMenu.category;
                   setCategoryMenuClosing(true);
-                  setRenamingCategory(categoryMenu.category);
-                  setRenameCategoryValue(categoryMenu.category);
+                  void handleNewNote(category);
                 }}
                 className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
               >
-                {t("main.category.rename", { defaultValue: "重命名" })}
+                {t("main.sidebar.newNote", { defaultValue: "新建笔记" })}
               </button>
-              <button
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => switchCategoryMenuPanel(true)}
-                className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer border-t border-paper-deep/20 outline-none"
-              >
-                {t("main.category.delete", { defaultValue: "删除分类" })}
-              </button>
+              {categoryMenu.category && (
+                <>
+                  <button
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setCategoryMenuClosing(true);
+                      setRenamingCategory(categoryMenu.category);
+                      setRenameCategoryValue(categoryMenu.category);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                  >
+                    {t("main.category.rename", { defaultValue: "重命名" })}
+                  </button>
+                  <button
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => switchCategoryMenuPanel(true)}
+                    className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer border-t border-paper-deep/20 outline-none"
+                  >
+                    {t("main.category.delete", { defaultValue: "删除分类" })}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

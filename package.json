@@ -1,6 +1,6 @@
 {
   "name": "personal-notes-dev",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "description": "花笺自用开发版本：个人笔记与知识库",
   "homepage": "https://github.com/Nan-WenYuan/personal-notes-dev",
@@ -33,6 +33,7 @@
     "i18next": "^26.2.0",
     "indent-textarea": "^4.0.0",
     "katex": "^0.16.47",
+    "lucide-react": "^1.52.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-i18next": "^17.0.8",

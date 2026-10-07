@@ -14,6 +14,15 @@
   padding: 4px 24px 24px;
   gap: 16px;
 }
+@media (max-width: 767px) {
+  .quadrant-grid {
+    grid-auto-rows: minmax(240px, auto);
+    align-content: start;
+  }
+  .quadrant-card {
+    min-height: 240px;
+  }
+}
 .quadrant-card {
   border: 1px solid color-mix(in srgb, var(--quadrant-color) 16%, var(--color-paper-deep));
   border-radius: 10px;
@@ -22,7 +31,7 @@
 }
 .quadrant-card > header {
   border: 0 !important;
-  padding: 17px 18px 11px;
+  padding: 12px 14px 8px;
 }
 .quadrant-card h2 {
   color: var(--quadrant-color);
@@ -43,12 +52,12 @@
 .quadrant-tasks {
   overflow: auto;
   min-height: 0;
-  padding: 0 12px 12px;
+  padding: 0 8px 8px;
 }
 .quadrant-card form {
   order: -1;
-  margin: 0 14px 10px;
-  padding: 8px 10px;
+  margin: 0 10px 6px;
+  padding: 5px 8px;
   border: 1px solid color-mix(in srgb, var(--quadrant-color) 15%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--color-paper) 80%, transparent);
@@ -69,7 +78,7 @@
   width: 22px;
 }
 .quadrant-tasks > div {
-  padding: 9px 8px;
+  padding: 4px 6px;
   border-bottom: 1px solid color-mix(in srgb, var(--quadrant-color) 9%, transparent);
   border-radius: 5px;
   align-items: center;
@@ -104,4 +113,147 @@
 }
 [data-theme="dark"] .quadrant-card {
   background: color-mix(in srgb, var(--quadrant-color) 7%, var(--color-paper));
+}
+
+.quadrant-pomo-start {
+  color: #cf7865;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.quadrant-pomo-start:hover {
+  background: #cf786520;
+}
+.quadrant-pomo-start:disabled {
+  opacity: 0.35;
+}
+.quadrant-task-content {
+  flex: 1;
+  min-width: 0;
+}
+.quadrant-task-content > input {
+  width: 100%;
+  height: 28px;
+}
+.quadrant-task-tomatoes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 0 3px;
+  pointer-events: auto;
+}
+.quadrant-task-tomatoes > img {
+  flex-shrink: 0;
+  opacity: 0.3;
+}
+.quadrant-tomato-bundle {
+  position: relative;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+.quadrant-tomato-bundle img {
+  opacity: 0.55;
+  filter: sepia(0.5) saturate(1.3);
+}
+.quadrant-tomato-bundle b {
+  position: absolute;
+  bottom: -1px;
+  right: -2px;
+  background: var(--color-paper);
+  color: #ad7a33;
+  font-size: 8px;
+  line-height: 10px;
+  min-width: 10px;
+  text-align: center;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.quadrant-task-tomatoes .quadrant-tomato-multiplier {
+  color: #ad7a33;
+  margin-right: 3px;
+}
+.quadrant-task-tomatoes span {
+  font-size: 10px;
+  color: var(--color-ink-faint);
+  line-height: 14px;
+}
+.quadrant-tasks > div {
+  align-items: flex-start;
+}
+.quadrant-tasks input[type="checkbox"] {
+  margin-top: 6px;
+}
+.quadrant-task-content ~ button[title="删除任务"] {
+  margin-top: 3px;
+}
+.quadrant-undo {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  max-width: 90%;
+  border: 1px solid var(--color-paper-deep);
+  border-radius: 8px;
+  background: var(--color-paper);
+  box-shadow: 0 4px 18px #0002;
+  color: var(--color-ink);
+  font-size: 12px;
+}
+.quadrant-undo button {
+  cursor: pointer;
+  flex-shrink: 0;
+  color: var(--color-bamboo);
+}
+.quadrant-focus-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.quadrant-focus-presets button {
+  padding: 8px 2px;
+  border: 1px solid var(--color-paper-deep);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.quadrant-focus-presets button[aria-pressed="true"] {
+  background: #cf786520;
+  border-color: #cf7865;
+  color: #cf7865;
+}
+.quadrant-board .pomodoro-modal {
+  --pomodoro: #cf7865;
+}
+.quadrant-tomato-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.quadrant-tomato-group + .quadrant-tomato-group {
+  border-left: 1px solid var(--color-paper-deep);
+  padding-left: 6px;
+  margin-left: 2px;
+}
+.quadrant-tomato-group img {
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.quadrant-tomato-group .tomato-single {
+  opacity: 0.5;
+}
+.quadrant-tomato-group .tomato-gold {
+  opacity: 0.75;
 }
