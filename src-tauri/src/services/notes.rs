@@ -1,6 +1,7 @@
 use crate::json_io::write_json_atomic;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     env, fmt, fs, io,
@@ -779,6 +780,7 @@ impl NoteStore {
 
     pub fn list_notes(&self) -> Result<Vec<NoteMetadata>, AppError> {
         self.ensure_storage()?;
+        self.sync_agent_knowledge()?;
         let mut metadata = self.load_metadata()?.notes;
         metadata.retain(|note| {
             self.note_path_in_category(&note.file_name, &note.category)
@@ -810,9 +812,26 @@ impl NoteStore {
         self.ensure_storage()?;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        let file_name = self.file_name_for(&id, &request.title);
-        let word_count = count_words(&request.content);
         let category = request.category.clone();
+        let file_name = if category == "Agent知识库" {
+            let stem = safe_file_stem(&request.title);
+            let stem = if stem.is_empty() {
+                "无标题笔记".to_string()
+            } else {
+                stem
+            };
+            if self
+                .note_path_in_category(&format!("{stem}.md"), &category)
+                .exists()
+            {
+                format!("{stem}－{}.md", &id[..8])
+            } else {
+                format!("{stem}.md")
+            }
+        } else {
+            self.file_name_for(&id, &request.title)
+        };
+        let word_count = count_words(&request.content);
         let note_path = self.note_path_in_category(&file_name, &category);
         if let Some(parent) = note_path.parent() {
             fs::create_dir_all(parent)?;
@@ -828,7 +847,7 @@ impl NoteStore {
             preview: preview(&request.content),
         };
 
-        fs::write(&note_path, &request.content)?;
+        write_markdown_atomic(&note_path, &request.content)?;
         let mut metadata_file = self.load_metadata()?;
         metadata_file.notes.push(metadata.clone());
         self.save_metadata(&metadata_file)?;
@@ -846,6 +865,15 @@ impl NoteStore {
     }
 
     pub fn update_note(&self, id: &str, request: SaveNoteRequest) -> Result<Note, AppError> {
+        self.update_note_checked(id, request, None)
+    }
+
+    pub fn update_note_checked(
+        &self,
+        id: &str,
+        request: SaveNoteRequest,
+        expected: Option<&str>,
+    ) -> Result<Note, AppError> {
         self.ensure_storage()?;
         let mut request = request;
         let mut metadata_file = self.load_metadata()?;
@@ -857,7 +885,11 @@ impl NoteStore {
 
         let old_file_name = note.file_name.clone();
         let old_category = note.category.clone();
-        let new_file_name = self.file_name_for(id, &request.title);
+        let new_file_name = if old_category == "Agent知识库" {
+            old_file_name.clone()
+        } else {
+            self.file_name_for(id, &request.title)
+        };
         let new_category = request.category.clone();
         let now = Utc::now();
         let word_count = count_words(&request.content);
@@ -884,7 +916,23 @@ impl NoteStore {
             &Self::image_prefix(&old_file_name),
             &Self::image_prefix(&new_file_name),
         );
-        fs::write(&new_path, &request.content)?;
+        if let Some(expected) = expected {
+            let disk =
+                fs::read_to_string(self.note_path_in_category(&old_file_name, &old_category))
+                    .map_err(|_| {
+                        AppError::new(
+                            "noteConflict",
+                            "文件已被外部删除或无法读取，本地内容尚未覆盖文件",
+                        )
+                    })?;
+            if disk != expected {
+                return Err(AppError::new(
+                    "noteConflict",
+                    "文件已被外部修改，本地内容尚未覆盖文件",
+                ));
+            }
+        }
+        write_markdown_atomic(&new_path, &request.content)?;
         let old_path = self.note_path_in_category(&old_file_name, &old_category);
         let replaced_path =
             (old_file_name != new_file_name || old_category != new_category).then_some(old_path);
@@ -1465,6 +1513,103 @@ impl NoteStore {
         self.data_dir.join("notes")
     }
 
+    pub fn agent_knowledge_directory(&self) -> Result<PathBuf, AppError> {
+        self.ensure_storage()?;
+        let dir = self.notes_dir().join("Agent知识库");
+        fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
+    pub fn setup_agent_knowledge(&self) -> Result<PathBuf, AppError> {
+        let dir = self.agent_knowledge_directory()?;
+        let rules = dir.join("AGENTS.md");
+        if !rules.exists() {
+            fs::write(&rules, "# Agent 知识库接入规则\n\n本目录是多个开发 Agent 共用的 Markdown 知识库。\n\n- 开发前先读取 `.agent-index.md`，搜索与当前项目、问题有关的笔记，再按需阅读正文。不要一次加载全部知识库。\n- 开发完成后只沉淀经过验证、值得复用的结论；没有新知识就不写。\n- 写入前查找已有主题，优先更新原笔记，保留适用范围、验证依据和相关代码位置；纠正过时结论，不重复堆积流水账。\n- 文件直接放在本目录，用“项目名－主题.md”命名，使用 UTF-8。图片放在笔记同目录的同名文件夹中，使用相对链接。\n- 每篇笔记建议包含：标题、适用项目、结论、验证依据、相关文件、更新日期。知识按项目和主题组织，作者仅作为来源。\n- 修改前重新读取文件，尽量用临时文件写完后原子替换，避免覆盖其他人的最新编辑。多个 Agent 不同时编辑同一篇笔记。\n- 不修改 metadata.json 或 `.agent-index.md`，索引由花笺生成；不保存凭据和私人数据。\n- 本文件是知识库工作约定，不覆盖用户当前要求和项目有效规范。\n")?;
+        }
+        self.sync_agent_knowledge()?;
+        Ok(dir)
+    }
+
+    fn sync_agent_knowledge(&self) -> Result<(), AppError> {
+        let dir = self.notes_dir().join("Agent知识库");
+        if !dir.is_dir() {
+            return Ok(());
+        }
+        let mut metadata = self.load_metadata()?;
+        let mut found = Vec::new();
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() || !is_markdown_path(&entry.path()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "AGENTS.md" || name == ".agent-index.md" {
+                continue;
+            }
+            let content = fs::read_to_string(entry.path())?;
+            let modified = DateTime::<Utc>::from(entry.metadata()?.modified()?);
+            let existing = metadata
+                .notes
+                .iter()
+                .find(|n| n.category == "Agent知识库" && n.file_name == name);
+            let id = existing
+                .map(|n| n.id.clone())
+                .unwrap_or_else(|| agent_file_id(&name));
+            let title = content
+                .lines()
+                .find_map(|line| line.trim().strip_prefix("# ").map(str::trim))
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    existing.map(|n| n.title.clone()).unwrap_or_else(|| {
+                        entry
+                            .path()
+                            .file_stem()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string()
+                    })
+                });
+            found.push(NoteMetadata {
+                id,
+                title,
+                file_name: name,
+                category: "Agent知识库".into(),
+                created_at: existing.map(|n| n.created_at).unwrap_or(modified),
+                updated_at: modified,
+                word_count: count_words(&content),
+                preview: preview(&content),
+            });
+        }
+        found.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+        let before = serde_json::to_vec(&metadata)?;
+        metadata.notes.retain(|n| n.category != "Agent知识库");
+        metadata.notes.extend(found.iter().cloned());
+        if serde_json::to_vec(&metadata)? != before {
+            self.save_metadata(&metadata)?;
+        }
+        let mut index = String::from("<!-- generated by 花笺; do not edit -->\n# Agent 知识库索引\n\n按项目名或关键词查找，再读取需要的正文。AGENTS.md 是接入规则。\n\n");
+        for note in found {
+            let mut url = reqwest::Url::parse("https://local.invalid/").unwrap();
+            url.set_path(&format!("/{}", note.file_name));
+            index.push_str(&format!(
+                "- [{}]({}) · {}\n",
+                note.title.replace(['[', ']', '\n', '\r'], " "),
+                url.path().trim_start_matches('/'),
+                note.updated_at.format("%Y-%m-%d")
+            ));
+        }
+        let path = dir.join(".agent-index.md");
+        if !path.exists()
+            || fs::read_to_string(&path)?.starts_with("<!-- generated by 花笺; do not edit -->")
+        {
+            if fs::read_to_string(&path).ok().as_deref() != Some(index.as_str()) {
+                write_markdown_atomic(&path, &index)?;
+            }
+        }
+        Ok(())
+    }
+
     fn note_path_in_category(&self, file_name: &str, category: &str) -> PathBuf {
         let notes_dir = self.notes_dir();
         if category.is_empty() {
@@ -1622,11 +1767,24 @@ impl NoteStore {
             }
 
             let file_name = entry.file_name().to_string_lossy().to_string();
-            let Some(id) = id_from_file_name(&file_name) else {
+            if category == "Agent知识库"
+                && (file_name == "AGENTS.md" || file_name == ".agent-index.md")
+            {
+                continue;
+            }
+            let Some(id) = (if category == "Agent知识库" {
+                Some(agent_file_id(&file_name))
+            } else {
+                id_from_file_name(&file_name)
+            }) else {
                 continue;
             };
             let content = fs::read_to_string(&path).unwrap_or_default();
-            let title = infer_title(&file_name, &content);
+            let title = if category == "Agent知识库" {
+                imported_markdown_title(&path, &content)
+            } else {
+                infer_title(&file_name, &content)
+            };
             let modified = entry
                 .metadata()
                 .and_then(|metadata| metadata.modified())
@@ -1827,6 +1985,27 @@ fn preview(content: &str) -> String {
         .collect()
 }
 
+fn write_markdown_atomic(path: &Path, content: &str) -> Result<(), AppError> {
+    use std::io::Write;
+    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<(), AppError> {
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
+}
+
+fn agent_file_id(file_name: &str) -> String {
+    format!("agent-{:x}", Sha256::digest(file_name.as_bytes()))
+}
+
 fn id_from_file_name(file_name: &str) -> Option<String> {
     let stem = file_name.strip_suffix(".md")?;
     Some(
@@ -1961,6 +2140,90 @@ fn default_locale() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_files_sync_without_editing_metadata_and_keep_paths() {
+        let root = test_root("agent-file-sync");
+        let store = NoteStore::new(root.join("config"), root.join("data"));
+        let dir = store.setup_agent_knowledge().unwrap();
+        fs::write(dir.join("项目－知识_a.md"), "# 测试知识\n已验证的内容").unwrap();
+        fs::write(dir.join("项目－知识_b.md"), "独立主题").unwrap();
+        let notes = store.list_notes().unwrap();
+        assert_eq!(notes.len(), 2);
+        assert_ne!(notes[0].id, notes[1].id);
+        let note = notes.iter().find(|n| n.title == "测试知识").unwrap();
+        let updated = store
+            .update_note_checked(
+                &note.id,
+                SaveNoteRequest {
+                    title: "界面新标题".into(),
+                    content: "# 新知识\n保存内容".into(),
+                    category: "Agent知识库".into(),
+                },
+                Some("# 测试知识\n已验证的内容"),
+            )
+            .unwrap();
+        assert_eq!(updated.file_name, "项目－知识_a.md");
+        fs::write(dir.join("项目－知识_a.md"), "# 外部改动\nAgent 更新").unwrap();
+        let synced = store.list_notes().unwrap();
+        assert_eq!(
+            synced.iter().find(|n| n.id == note.id).unwrap().title,
+            "外部改动"
+        );
+        let failure = store
+            .update_note_checked(
+                &note.id,
+                SaveNoteRequest {
+                    title: "旧内容".into(),
+                    content: "本地编辑".into(),
+                    category: "Agent知识库".into(),
+                },
+                Some("# 新知识\n保存内容"),
+            )
+            .unwrap_err();
+        assert_eq!(failure.code, "noteConflict");
+        assert_eq!(
+            fs::read_to_string(dir.join("项目－知识_a.md")).unwrap(),
+            "# 外部改动\nAgent 更新"
+        );
+        fs::remove_file(dir.join("项目－知识_a.md")).unwrap();
+        assert_eq!(store.list_notes().unwrap().len(), 1);
+        assert!(!fs::read_to_string(dir.join(".agent-index.md"))
+            .unwrap()
+            .contains("外部改动"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agent_setup_preserves_rules_and_new_notes_use_readable_unique_names() {
+        let root = test_root("agent-setup");
+        let store = NoteStore::new(root.join("config"), root.join("data"));
+        let dir = store.agent_knowledge_directory().unwrap();
+        fs::write(dir.join("AGENTS.md"), "用户已有规则").unwrap();
+        store.setup_agent_knowledge().unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("AGENTS.md")).unwrap(),
+            "用户已有规则"
+        );
+        let first = store
+            .create_note(SaveNoteRequest {
+                title: "项目－经验".into(),
+                content: "知识".into(),
+                category: "Agent知识库".into(),
+            })
+            .unwrap();
+        let second = store
+            .create_note(SaveNoteRequest {
+                title: "项目－经验".into(),
+                content: "副本".into(),
+                category: "Agent知识库".into(),
+            })
+            .unwrap();
+        assert_eq!(first.file_name, "项目－经验.md");
+        assert_ne!(first.file_name, second.file_name);
+        assert_eq!(store.list_notes().unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
     use std::{fs, path::PathBuf};
 
     #[test]

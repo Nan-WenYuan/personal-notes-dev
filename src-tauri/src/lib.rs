@@ -51,10 +51,26 @@ fn notes_create(app: AppHandle, request: SaveNoteRequest) -> Result<Note, AppErr
 }
 
 #[tauri::command]
-fn notes_update(app: AppHandle, id: String, request: SaveNoteRequest) -> Result<Note, AppError> {
-    let note = default_store()?.update_note(&id, request)?;
+fn notes_update(
+    app: AppHandle,
+    id: String,
+    request: SaveNoteRequest,
+    expected_content: Option<String>,
+) -> Result<Note, AppError> {
+    let note = default_store()?.update_note_checked(&id, request, expected_content.as_deref())?;
     let _ = app.emit("notes-changed", ());
     Ok(note)
+}
+
+#[tauri::command]
+fn agent_knowledge_directory(setup: bool) -> Result<String, AppError> {
+    let store = default_store()?;
+    let dir = if setup {
+        store.setup_agent_knowledge()?
+    } else {
+        store.agent_knowledge_directory()?
+    };
+    Ok(dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -664,6 +680,7 @@ pub fn run() {
             notes_get,
             notes_create,
             notes_update,
+            agent_knowledge_directory,
             notes_delete,
             notes_import_markdown,
             notes_export_markdown,
@@ -724,9 +741,13 @@ pub fn run() {
                             eprintln!("failed to request task save: {error}");
                         }
                     }
+                } else {
+                    pomodoro::clear_notification_icon();
+                    drop(_app_handle.remove_tray_by_id("main-tray"));
                 }
             }
             if matches!(_event, tauri::RunEvent::Exit) {
+                pomodoro::clear_notification_icon();
                 if let Err(error) = pomodoro::pause_on_exit() {
                     eprintln!("failed to pause focus timer: {error}");
                 }

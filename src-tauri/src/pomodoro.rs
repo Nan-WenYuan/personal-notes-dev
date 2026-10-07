@@ -10,6 +10,25 @@ use std::sync::{
 use tauri::Manager;
 static LOCK: Mutex<()> = Mutex::new(());
 static EXITING: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+static NOTIFICATION_HWND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn clear_notification_icon() {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIM_DELETE, NOTIFYICONDATAW};
+        let hwnd = NOTIFICATION_HWND.swap(0, Ordering::SeqCst);
+        if hwnd != 0 {
+            let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+            data.hWnd = hwnd as _;
+            data.uID = 0x504f4d4f;
+            unsafe {
+                Shell_NotifyIconW(NIM_DELETE, &data);
+            }
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -230,6 +249,7 @@ pub fn pomodoro_alert(
                 data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
                 Shell_NotifyIconW(NIM_SETVERSION, &data);
             }
+            NOTIFICATION_HWND.store(hwnd, Ordering::SeqCst);
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(15));
                 let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };

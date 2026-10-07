@@ -1184,7 +1184,10 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
         return;
     };
 
-    match main_window_close_action(app_is_exiting(window.app_handle()), close_to_tray_enabled()) {
+    match main_window_close_action(
+        app_is_exiting(window.app_handle()),
+        close_to_tray_enabled() && window.app_handle().tray_by_id(TRAY_ID).is_some(),
+    ) {
         MainWindowCloseAction::AllowClose => {}
         MainWindowCloseAction::HideToTray => {
             api.prevent_close();
@@ -1275,6 +1278,11 @@ fn main_window_close_action(app_is_exiting: bool, close_to_tray: bool) -> MainWi
 }
 
 fn setup_tray(app: &mut App) -> Result<(), Box<dyn Error>> {
+    // Hot reload terminates the development process before native tray cleanup.
+    // Isolated development previews do not create tray icons; closing exits instead.
+    if cfg!(debug_assertions) && app.config().identifier.ends_with(".dev") {
+        return Ok(());
+    }
     let config = load_config()?;
     let menu = build_tray_menu(app.handle(), &config)?;
     let locale = locale_from_config(&config);

@@ -157,6 +157,7 @@ export function NotePad({
   const windowLabelRef = useRef("");
   const statusRef = useRef<NotePadStatus>("empty");
   const contentValueRef = useRef(content);
+  const diskBaseline = useRef<{ id: string; content: string } | null>(null);
   contentValueRef.current = content;
   const titleValueRef = useRef(title);
   titleValueRef.current = title;
@@ -202,6 +203,7 @@ export function NotePad({
   }, []);
 
   const applyNote = useCallback((note: Note) => {
+    diskBaseline.current = { id: note.id, content: note.content };
     setEditingNoteId(note.id);
     setTitle(note.title);
     setContent(note.content);
@@ -345,8 +347,15 @@ export function NotePad({
     const oldFileName = notes.find((n) => n.id === editingNoteId)?.fileName;
     const request = { title, content, category: existingCategory };
     const note = editingNoteId
-      ? await updateNote(editingNoteId, request)
+      ? await updateNote(
+          editingNoteId,
+          request,
+          existingCategory === "Agent知识库" && diskBaseline.current?.id === editingNoteId
+            ? diskBaseline.current.content
+            : undefined,
+        )
       : await createNote(request);
+    diskBaseline.current = { id: note.id, content: note.content };
 
     setEditingNoteId(note.id);
     setNotes((current) => {

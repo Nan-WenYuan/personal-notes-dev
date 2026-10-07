@@ -3,7 +3,8 @@ import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
 import { join } from "@tauri-apps/api/path";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { RichEditor, type RichEditorHandle } from "../features/markdown/RichEditor";
 import {
   useCallback,
@@ -525,6 +526,8 @@ export function MainWindow({
     `${imageNote?.category}/${imageNote?.fileName}`,
   );
   const saveStateRef = useRef(saveState);
+  const diskBaseline = useRef<{ id: string; content: string } | null>(null);
+  const [knowledgeConflict, setKnowledgeConflict] = useState(false);
   const isMacOS = useMemo(() => {
     return (
       typeof navigator !== "undefined" &&
@@ -720,6 +723,8 @@ export function MainWindow({
 
   const applyNote = useCallback(
     (note: Note) => {
+      diskBaseline.current = { id: note.id, content: note.content };
+      setKnowledgeConflict(false);
       setHoveredId(null);
       setQuadrantsOpen(false);
       setPomodoroOpen(false);
@@ -772,6 +777,8 @@ export function MainWindow({
   }, []);
 
   const clearCurrentNote = useCallback(() => {
+    diskBaseline.current = null;
+    setKnowledgeConflict(false);
     setSelectedNoteIds(new Set());
     selectionAnchor.current = null;
     loadEpoch.bump();
@@ -1020,15 +1027,24 @@ export function MainWindow({
           if (!currentId) return;
           const stillExists = loaded.some((n) => n.id === currentId);
           if (stillExists) {
-            if (saveStateRef.current !== "dirty" && saveStateRef.current !== "saving") {
+            if (
+              saveStateRef.current !== "dirty" &&
+              saveStateRef.current !== "saving" &&
+              saveStateRef.current !== "error"
+            ) {
               void getNote(currentId)
                 .then((note) => {
                   if (isStale()) return;
                   if (selectedIdRef.current !== currentId) return;
-                  if (saveStateRef.current === "dirty" || saveStateRef.current === "saving") {
+                  if (
+                    saveStateRef.current === "dirty" ||
+                    saveStateRef.current === "saving" ||
+                    saveStateRef.current === "error"
+                  ) {
                     return;
                   }
                   titleValueRef.current = note.title;
+                  diskBaseline.current = { id: note.id, content: note.content };
                   contentValueRef.current = note.content;
                   saveStateRef.current = "saved";
                   setTitle(note.title);
@@ -1038,6 +1054,14 @@ export function MainWindow({
                 .catch(() => undefined);
             }
           } else if (selectedNoteRef.current) {
+            if (
+              saveStateRef.current === "dirty" ||
+              saveStateRef.current === "error" ||
+              saveStateRef.current === "saving"
+            ) {
+              setKnowledgeConflict(true);
+              return;
+            }
             if (loaded[0]) {
               void loadNote(loaded[0].id);
             } else {
@@ -1059,6 +1083,66 @@ export function MainWindow({
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [refreshNotes]);
+
+  useEffect(() => {
+    let busy = false;
+    let stopped = false;
+    let lastError = "";
+    const sync = async () => {
+      if (busy || document.visibilityState === "hidden") return;
+      busy = true;
+      const epoch = loadEpoch.peek();
+      const currentCategory = notesRef.current.find(
+        (n) => n.id === selectedIdRef.current,
+      )?.category;
+      try {
+        const loaded = await refreshNotes();
+        lastError = "";
+        const id = selectedIdRef.current;
+        const baseline = diskBaseline.current;
+        if (stopped || !loadEpoch.isCurrent(epoch) || !id || baseline?.id !== id) return;
+        if (currentCategory !== "Agent知识库") return;
+        if (!loaded.some((n) => n.id === id)) {
+          if (saveStateRef.current === "saving") return;
+          if (saveStateRef.current === "dirty" || saveStateRef.current === "error")
+            setKnowledgeConflict(true);
+          else clearCurrentNote();
+          return;
+        }
+        const disk = await getNote(id);
+        if (
+          stopped ||
+          !loadEpoch.isCurrent(epoch) ||
+          selectedIdRef.current !== id ||
+          diskBaseline.current !== baseline ||
+          saveStateRef.current === "saving"
+        )
+          return;
+        if (disk.content !== baseline.content) {
+          if (saveStateRef.current === "dirty" || saveStateRef.current === "error") {
+            setKnowledgeConflict(true);
+          } else {
+            diskBaseline.current = { id, content: disk.content };
+            titleValueRef.current = disk.title;
+            contentValueRef.current = disk.content;
+            setTitle(disk.title);
+            setContent(disk.content);
+          }
+        }
+      } catch (error) {
+        const message = getErrorMessage(error);
+        if (!stopped && message !== lastError) showToast(`知识库同步失败：${message}`);
+        lastError = message;
+      } finally {
+        busy = false;
+      }
+    };
+    const timer = window.setInterval(() => void sync(), 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshNotes, loadEpoch, clearCurrentNote]);
 
   useEffect(() => {
     const onResize = () => setSettingsOverlay(window.innerWidth < 1080);
@@ -1247,6 +1331,7 @@ export function MainWindow({
 
   const performSave = useCallback(
     async (force: boolean): Promise<boolean> => {
+      if (!force && saveStateRef.current === "error") return false;
       // 非强制保存（自动保存、切换前保存）在没有未保存修改时直接视为成功
       if (!force && saveStateRef.current !== "dirty") return true;
       const id = selectedIdRef.current;
@@ -1278,11 +1363,21 @@ export function MainWindow({
         } else {
           const category = notesRef.current.find((note) => note.id === id)?.category ?? "";
           const oldFileName = notesRef.current.find((note) => note.id === id)?.fileName;
-          const note = await updateNote(id, {
-            title: titleSnapshot,
-            content: contentSnapshot,
-            category,
-          });
+          const note = await updateNote(
+            id,
+            {
+              title: titleSnapshot,
+              content: contentSnapshot,
+              category,
+            },
+            category === "Agent知识库" && diskBaseline.current?.id === id
+              ? diskBaseline.current.content
+              : undefined,
+          );
+          if (stillCurrent()) {
+            diskBaseline.current = { id, content: note.content };
+            setKnowledgeConflict(false);
+          }
           replaceNoteMetadata(note);
           const contentChanged =
             contentValueRef.current !== contentSnapshot || titleValueRef.current !== titleSnapshot;
@@ -1300,6 +1395,11 @@ export function MainWindow({
         }
         return true;
       } catch (error) {
+        if (
+          stillCurrent() &&
+          /noteConflict/.test(typeof error === "string" ? error : JSON.stringify(error))
+        )
+          setKnowledgeConflict(true);
         settleSaveState("error");
         showToast(getErrorMessage(error));
         return false;
@@ -3419,6 +3519,57 @@ export function MainWindow({
               key={noteTransitionKey}
               className="animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15"
             >
+              {knowledgeConflict && selectedId && (
+                <div
+                  role="alert"
+                  className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-orange-300/50 bg-orange-100/20 px-3 py-2 text-xs text-ink"
+                >
+                  <span className="flex-1">
+                    文件已被外部修改或删除，已阻止覆盖。可先保存本地副本，再载入磁盘内容。
+                  </span>
+                  <button
+                    className="rounded border border-paper-deep px-2 py-1 cursor-pointer"
+                    onClick={() =>
+                      void (async () => {
+                        try {
+                          const copy = await createNote({
+                            title: `${titleValueRef.current || "笔记"}－本地副本`,
+                            content: contentValueRef.current,
+                            category: "Agent知识库",
+                          });
+                          await refreshNotes();
+                          applyNote(copy);
+                          showToast("本地内容已另存副本，原文件保留");
+                        } catch (error) {
+                          showToast(getErrorMessage(error));
+                        }
+                      })()
+                    }
+                  >
+                    本地内容另存副本
+                  </button>
+                  <button
+                    className="rounded border border-paper-deep px-2 py-1 cursor-pointer"
+                    onClick={() =>
+                      void (async () => {
+                        if (
+                          !window.confirm(
+                            "载入磁盘内容将放弃当前本地编辑。建议先另存副本，继续吗？",
+                          )
+                        )
+                          return;
+                        try {
+                          if (selectedIdRef.current) await loadNote(selectedIdRef.current);
+                        } catch (error) {
+                          showToast(getErrorMessage(error));
+                        }
+                      })()
+                    }
+                  >
+                    载入磁盘内容
+                  </button>
+                </div>
+              )}
               <input
                 type="text"
                 value={title}
@@ -3836,6 +3987,7 @@ export function MainWindow({
           style={{
             left: categoryMenuPosition?.x ?? categoryMenu.x,
             top: categoryMenuPosition?.y ?? categoryMenu.y,
+            width: categoryMenu.category === "Agent知识库" ? 220 : undefined,
             maxWidth: `calc(100vw - ${POPUP_VIEWPORT_MARGIN * 2}px)`,
             maxHeight: `calc(100vh - ${POPUP_VIEWPORT_MARGIN * 2}px)`,
           }}
@@ -3880,6 +4032,47 @@ export function MainWindow({
               >
                 {t("main.sidebar.newNote", { defaultValue: "新建笔记" })}
               </button>
+              {categoryMenu.category === "Agent知识库" &&
+                (
+                  [
+                    ["打开知识库目录", "open"],
+                    ["复制知识库路径", "path"],
+                    ["初始化并复制接入说明", "setup"],
+                  ] as const
+                ).map(([label, action]) => (
+                  <button
+                    key={action}
+                    className="w-full text-left px-3 py-1.5 text-[12px] text-orange-600 hover:bg-orange-100/30 cursor-pointer"
+                    onClick={() =>
+                      void (async () => {
+                        setCategoryMenuClosing(true);
+                        try {
+                          const path = await invoke<string>("agent_knowledge_directory", {
+                            setup: action === "setup",
+                          });
+                          if (action === "open") await openPath(path);
+                          else {
+                            await writeText(
+                              action === "path"
+                                ? path
+                                : `本项目使用共享 Agent 知识库：${path}\n开发前读取该目录的 AGENTS.md 和 .agent-index.md，按需查阅相关笔记；开发后沉淀经过验证且可复用的经验，优先更新已有主题。直接读写 UTF-8 Markdown，不修改软件索引。遵循用户当前要求和本项目规范。`,
+                            );
+                            showToast(
+                              action === "path"
+                                ? "知识库路径已复制"
+                                : "接入说明已复制，可粘贴到项目 AGENTS.md 或发给 Agent",
+                            );
+                          }
+                          await refreshNotes();
+                        } catch (error) {
+                          showToast(getErrorMessage(error));
+                        }
+                      })()
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
               {categoryMenu.category && (
                 <>
                   <button
