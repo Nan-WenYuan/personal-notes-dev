@@ -4035,9 +4035,8 @@ export function MainWindow({
               {categoryMenu.category === "Agent知识库" &&
                 (
                   [
-                    ["打开知识库目录", "open"],
-                    ["复制知识库路径", "path"],
                     ["复制接入说明", "setup"],
+                    ["打开知识库目录", "open"],
                   ] as const
                 ).map(([label, action]) => (
                   <button
@@ -4053,14 +4052,9 @@ export function MainWindow({
                           if (action === "open") await openPath(path);
                           else {
                             await writeText(
-                              action === "path"
-                                ? path
-                                : `本项目使用共享 Agent 知识库：${path}\n开发前读取该目录的 AGENTS.md 和 .agent-index.md，按需查阅相关笔记；开发后沉淀经过验证且可复用的经验，优先更新已有主题。直接读写 UTF-8 Markdown，不修改软件索引。遵循用户当前要求和本项目规范。`,
+                              `本项目使用共享 Agent 知识库：${path}\n开发前读取该目录的 AGENTS.md 和 .agent-index.md，按需查阅相关笔记；开发后沉淀经过验证且可复用的经验，优先更新已有主题。直接读写 UTF-8 Markdown，不修改软件索引。遵循用户当前要求和本项目规范。`,
                             );
-                            showToast(
-                              action === "path" ? "知识库路径已复制" : "接入说明已复制",
-                              "success",
-                            );
+                            showToast("接入说明已复制", "success");
                           }
                           await refreshNotes();
                         } catch (error) {
@@ -4072,7 +4066,7 @@ export function MainWindow({
                     {label}
                   </button>
                 ))}
-              {categoryMenu.category && (
+              {categoryMenu.category && categoryMenu.category !== "Agent知识库" && (
                 <>
                   <button
                     onMouseDown={(event) => event.preventDefault()}
