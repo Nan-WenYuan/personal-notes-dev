@@ -57,6 +57,8 @@ impl Default for Settings {
 #[serde(rename_all = "camelCase")]
 pub struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    interrupted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     task_title: Option<String>,
@@ -121,7 +123,9 @@ fn validate(state: &State) -> Result<(), AppError> {
         || state.remaining > 10800
         || !(60..=10800).contains(&state.session_seconds)
         || state.records.iter().any(|r| {
-            r.id.is_empty() || !(60..=10800).contains(&r.seconds) || r.completed_at < r.started_at
+            r.id.is_empty()
+                || !(if r.interrupted == Some(true) { 1 } else { 60 }..=10800).contains(&r.seconds)
+                || r.completed_at < r.started_at
         })
     {
         return Err(error("无效的番茄钟设置或记录"));
@@ -154,6 +158,7 @@ fn pause(state: &mut State, now: u64) {
             if let (Some(id), Some(start)) = (&state.session_id, state.started_at) {
                 if !state.records.iter().any(|r| r.id == *id) {
                     state.records.push(Record {
+                        interrupted: None,
                         task_id: state.session_task.as_ref().map(|t| t.id.clone()),
                         task_title: state.session_task.as_ref().map(|t| t.title.clone()),
                         id: id.clone(),
@@ -342,6 +347,7 @@ mod tests {
         s.settings.focus_minutes = 30;
         assert!(validate(&s).is_ok());
         s.records.push(Record {
+            interrupted: None,
             task_id: None,
             task_title: None,
             id: "one".into(),
@@ -349,6 +355,25 @@ mod tests {
             completed_at: 4,
             seconds: 1800,
         });
+        assert!(validate(&s).is_err());
+    }
+    #[test]
+    fn interrupted_record_roundtrips_and_accepts_partial_minutes() {
+        let mut s = State::default();
+        s.records.push(Record {
+            interrupted: Some(true),
+            task_id: Some("task".into()),
+            task_title: None,
+            id: "partial".into(),
+            started_at: 1,
+            completed_at: 20001,
+            seconds: 20,
+        });
+        validate(&s).unwrap();
+        let loaded: State = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(loaded.records[0].interrupted, Some(true));
+        assert_eq!(loaded.records[0].seconds, 20);
+        s.records[0].interrupted = None;
         assert!(validate(&s).is_err());
     }
 }

@@ -1173,6 +1173,12 @@ impl NoteStore {
     }
 
     pub fn rename_category(&self, old_name: &str, new_name: &str) -> Result<(), AppError> {
+        if ["", "Agent知识库", "便签"].contains(&old_name) {
+            return Err(AppError::new(
+                "defaultCategoryProtected",
+                "默认分类不能重命名",
+            ));
+        }
         let new_name = new_name.trim();
         if new_name.is_empty() {
             return Err(AppError::category_name_empty());
@@ -1217,6 +1223,12 @@ impl NoteStore {
     }
 
     pub fn delete_category(&self, name: &str) -> Result<(), AppError> {
+        if ["", "Agent知识库", "便签"].contains(&name) {
+            return Err(AppError::new(
+                "defaultCategoryProtected",
+                "默认分类不能删除",
+            ));
+        }
         self.ensure_storage()?;
         let notes_dir = self.notes_dir();
         let category_path = notes_dir.join(name);
@@ -2241,6 +2253,34 @@ mod tests {
             .unwrap();
         let reopened = NoteStore::new(store.data_dir.clone(), store.data_dir.clone());
         assert_eq!(reopened.list_categories().unwrap(), vec!["B", "A"]);
+        fs::remove_dir_all(store.data_dir()).unwrap();
+    }
+
+    #[test]
+    fn default_categories_cannot_be_renamed_or_deleted() {
+        let store = test_store("protected-categories");
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "便签测试".into(),
+                content: "保留内容".into(),
+                category: "便签".into(),
+            })
+            .unwrap();
+        for name in ["", "Agent知识库", "便签"] {
+            assert_eq!(
+                store.rename_category(name, "改名").unwrap_err().code,
+                "defaultCategoryProtected"
+            );
+            assert_eq!(
+                store.delete_category(name).unwrap_err().code,
+                "defaultCategoryProtected"
+            );
+        }
+        assert_eq!(store.read_note(&note.id).unwrap().content, "保留内容");
+        assert!(!store.notes_dir().join("改名").exists());
+        store.create_category("普通分类").unwrap();
+        store.rename_category("普通分类", "普通改名").unwrap();
+        assert!(store.notes_dir().join("普通改名").is_dir());
         fs::remove_dir_all(store.data_dir()).unwrap();
     }
 

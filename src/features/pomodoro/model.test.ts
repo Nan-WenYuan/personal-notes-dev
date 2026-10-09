@@ -1,6 +1,44 @@
 import { describe, expect, test } from "vitest";
-import { dateKey, emptyTimer, finishTimer, monthCells, secondsLeft, recoverTimer } from "./model";
+import {
+  dateKey,
+  emptyTimer,
+  finishTimer,
+  monthCells,
+  secondsLeft,
+  recoverTimer,
+  associateTask,
+  interruptTimer,
+} from "./model";
 describe("pomodoro lifecycle", () => {
+  test("associating a task preserves a running or paused session", () => {
+    const running = { ...emptyTimer(), sessionId: "running", startedAt: 1000, endsAt: 1501000 };
+    const linked = associateTask(running, { id: "task", title: "任务" });
+    expect(linked.endsAt).toBe(running.endsAt);
+    expect(linked.sessionId).toBe(running.sessionId);
+    expect(linked.sessionSeconds).toBe(running.sessionSeconds);
+    expect(linked.sessionTask?.id).toBe("task");
+    const paused = associateTask({ ...linked, endsAt: null, remaining: 100 }, null);
+    expect(paused.remaining).toBe(100);
+    expect(paused.sessionId).toBe("running");
+    expect(paused.sessionTask).toBeNull();
+  });
+  test("interruption keeps actual active seconds once, excluding pause time", () => {
+    const paused = {
+      ...emptyTimer(),
+      remaining: 1480,
+      sessionId: "partial",
+      startedAt: 1000,
+      sessionTask: { id: "task", title: "任务" },
+    };
+    const stopped = interruptTimer(paused, 900000);
+    expect(stopped.records[0]).toMatchObject({ seconds: 20, interrupted: true, taskId: "task" });
+    expect(stopped.sessionId).toBeNull();
+    expect(interruptTimer(stopped, 1000000).records).toHaveLength(1);
+    expect(interruptTimer({ ...paused, mode: "short" }, 900000).records).toHaveLength(0);
+    const expired = interruptTimer({ ...paused, endsAt: 2000 }, 3000);
+    expect(expired.records[0].interrupted).toBeUndefined();
+    expect(expired.records[0].seconds).toBe(1500);
+  });
   test("task snapshot survives rename and automatic rest retains association", () => {
     const state = {
       ...emptyTimer(),

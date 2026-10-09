@@ -16,7 +16,7 @@ import type { UpdateInstallPrepareRequest } from "../features/update/types";
 import { showToast } from "./Toast";
 import type { Note, NoteMetadata } from "../features/notes/types";
 import { countNoteChars, metadataFromNote } from "../features/notes/noteUtils";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   animateCurrentWindowBounds,
@@ -136,8 +136,16 @@ export function NotePad({
 }: NotePadProps) {
   const { t } = useTranslation();
   const [surfaceMode, setSurfaceMode] = useState<NoteSurfaceMode>(initialSurfaceMode);
-  const [isPinned, setIsPinned] = useState(false);
+  const [isPinned, setIsPinned] = useState(
+    () => new URLSearchParams(window.location.search).get("pinned") === "1",
+  );
   const pinPending = useRef(false);
+  useEffect(() => {
+    const unlisten = listen<boolean>("notepad:set-pinned", ({ payload }) => setIsPinned(payload));
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
   useEffect(() => {
     if (surfaceMode === "pad") {
       void setCurrentWindowAlwaysOnTop(isPinned).catch((error) =>
@@ -395,6 +403,9 @@ export function NotePad({
       setContent(nextContent);
     }
     setStatus(contentChanged ? "dirty" : "saved");
+    if (!editingNoteId) {
+      void emit("notepad-saved", { category: note.category }).catch(() => undefined);
+    }
     return note;
   }, [content, editingNoteId, notes, title]);
 
@@ -510,6 +521,10 @@ export function NotePad({
     async ({ isAutoSave = false }: { isAutoSave?: boolean } = {}) => {
       try {
         const savedNote = await saveNote();
+        if (!isAutoSave) {
+          void emit("notepad-saved", { category: savedNote.category }).catch(() => undefined);
+          showToast(t("notepad.status.saved", { defaultValue: "已保存" }), "success");
+        }
         if (
           shouldReturnToTileAfterManualSave({
             enabled: tileSaveReturnsToPin,
@@ -525,7 +540,7 @@ export function NotePad({
         showToast(getErrorMessage(error));
       }
     },
-    [saveNote, surfaceMode, switchSurfaceMode, tileSaveReturnsToPin],
+    [saveNote, surfaceMode, switchSurfaceMode, tileSaveReturnsToPin, t],
   );
 
   // 全局监听（Ctrl+S、表面动作）只注册一次，通过 ref 取最新回调，
@@ -904,7 +919,11 @@ export function NotePad({
                 />
 
                 <div className="flex items-center justify-between gap-2 mt-auto pt-1 border-t border-paper-deep/30 shrink-0">
-                  <span className="min-w-0 text-[10px] text-ink-ghost font-mono tabular-nums truncate">
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className={`min-w-0 text-[10px] font-mono tabular-nums truncate ${status === "saved" ? "text-bamboo" : "text-ink-ghost"}`}
+                  >
                     {`${countNoteChars(content)} ${t("common.wordCountUnit", { defaultValue: "字" })} · ${statusLabel[status]}`}
                   </span>
                   <div className="flex items-center gap-2">

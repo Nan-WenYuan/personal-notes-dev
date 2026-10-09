@@ -13,7 +13,8 @@ export function summarizeTask(records: FocusRecord[], taskId: string) {
   return tomatoKinds
     .map((kind) => {
       const matching = records.filter(
-        (record) => record.taskId === taskId && tomatoKind(record.seconds) === kind,
+        (record) =>
+          !record.interrupted && record.taskId === taskId && tomatoKind(record.seconds) === kind,
       );
       const durations = new Map<number, number>();
       matching.forEach((record) =>

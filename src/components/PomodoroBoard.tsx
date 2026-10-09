@@ -103,6 +103,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
   );
   const counts = new Map<string, number>();
   for (const record of timer.state.records) {
+    if (record.interrupted) continue;
     const key = dateKey(new Date(record.completedAt));
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
@@ -153,12 +154,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                 disabled={!timer.ready}
                 aria-pressed={timer.state.mode === mode}
                 onClick={() => {
-                  if (
-                    mode !== timer.state.mode &&
-                    (timer.state.startedAt === null ||
-                      window.confirm("切换模式会放弃当前未完成的计时，继续吗？"))
-                  )
-                    timer.reset(mode);
+                  if (mode !== timer.state.mode) timer.reset(mode);
                 }}
               >
                 {label}
@@ -188,9 +184,9 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
               <strong>
                 <button
                   className="pomodoro-time-edit"
-                  disabled={!timer.ready || timer.state.mode !== "focus"}
-                  title="点击设置本次专注时长"
-                  aria-label="设置本次专注时长"
+                  disabled={!timer.ready}
+                  title="点击设置本次计时时长"
+                  aria-label="设置本次计时时长"
                   onClick={() => {
                     setDurationMinutes(Math.round(timer.state.sessionSeconds / 60));
                     setDurationOpen(true);
@@ -227,13 +223,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
               disabled={!timer.ready}
               title="重置计时"
               aria-label="重置计时"
-              onClick={() => {
-                if (
-                  timer.state.startedAt === null ||
-                  window.confirm("重置会放弃当前未完成的计时，继续吗？")
-                )
-                  timer.reset();
-              }}
+              onClick={() => timer.reset()}
             >
               <TimerReset size={20} strokeWidth={1.6} aria-hidden="true" />
             </button>
@@ -394,7 +384,8 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
             })}
           </h2>
           <p>
-            完成 {records.length} 个番茄 · {minutes(records)} 分钟
+            完成 {records.filter((record) => !record.interrupted).length} 个番茄 ·{" "}
+            {minutes(records)} 分钟
           </p>
           <div className="pomodoro-records">
             {records.length === 0 ? (
@@ -411,9 +402,12 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                     <span>
                       {time(record.startedAt)} – {time(record.completedAt)}
                     </span>
-                    <strong>{record.taskTitle || "专注完成"}</strong>
+                    <strong>
+                      {record.taskTitle || "专注"}
+                      {record.interrupted ? " · 已中断" : " · 已完成"}
+                    </strong>
                   </div>
-                  <small>{record.seconds / 60} 分钟</small>
+                  <small>{clockText(record.seconds)}</small>
                   <div className="pomodoro-record-actions">
                     <button
                       title="修改记录"
@@ -454,14 +448,14 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
             className="pomodoro-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="设置本次专注时长"
+            aria-label="设置本次计时时长"
             onSubmit={(event) => {
               event.preventDefault();
-              if (timer.setFocusDuration(durationMinutes)) setDurationOpen(false);
+              if (timer.setDuration(durationMinutes)) setDurationOpen(false);
             }}
           >
             <header>
-              <h2>本次专注时长</h2>
+              <h2>本次{modes.find((item) => item.mode === timer.state.mode)?.label}时长</h2>
               <button
                 type="button"
                 aria-label="关闭时长选择"
@@ -488,13 +482,13 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                 type="number"
                 required
                 min="1"
-                max="180"
+                max={timer.state.mode === "focus" ? 180 : 60}
                 step="1"
                 value={durationMinutes}
                 onChange={(event) => setDurationMinutes(Number(event.target.value))}
               />
             </label>
-            <p>仅设置本次时长，不修改默认设置。保存后点击开始专注。</p>
+            <p>仅设置本次时长，不修改默认设置。确认后点击开始计时。</p>
             <footer>
               <button type="button" onClick={() => setDurationOpen(false)}>
                 取消
@@ -652,7 +646,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                 !Number.isFinite(completedAt) ||
                 completedAt > timer.now ||
                 !Number.isInteger(seconds) ||
-                seconds < 60 ||
+                seconds < (editingRecord.interrupted ? 1 : 60) ||
                 seconds > 10800
               ) {
                 setFormError("请输入有效的过去日期和时长");
@@ -689,9 +683,9 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
               <input
                 name="minutes"
                 type="number"
-                min="1"
+                min={editingRecord.interrupted ? 1 / 60 : 1}
                 max="180"
-                step="1"
+                step={editingRecord.interrupted ? "any" : "1"}
                 required
                 defaultValue={editingRecord.seconds / 60}
               />

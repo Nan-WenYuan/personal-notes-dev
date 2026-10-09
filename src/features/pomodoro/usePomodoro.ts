@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { showToast } from "../../components/Toast";
 import {
   modeSeconds,
+  associateTask,
+  interruptTimer,
   recoverTimer,
   emptyTimer,
   finishTimer,
@@ -119,8 +121,13 @@ export function usePomodoro() {
   };
   const reset = (mode: TimerMode = current.current.mode) => {
     if (!ready) return;
+    if (
+      current.current.sessionId &&
+      !window.confirm("结束本轮计时？已专注时间会保留为中断记录，不计作完成番茄。")
+    )
+      return;
     persist({
-      ...finishTimer(current.current, Date.now()),
+      ...interruptTimer(current.current, Date.now()),
       mode,
       remaining: modeSeconds(mode, current.current.settings),
       sessionSeconds: modeSeconds(mode, current.current.settings),
@@ -144,7 +151,7 @@ export function usePomodoro() {
       !same &&
       value.sessionId &&
       value.mode === "focus" &&
-      !window.confirm("切换任务会放弃当前未完成的专注，继续吗？")
+      !window.confirm("开始新任务会结束本轮专注，已专注时间保留为中断记录，继续吗？")
     )
       return false;
     const remaining = same
@@ -153,7 +160,7 @@ export function usePomodoro() {
         ? minutes * 60
         : modeSeconds("focus", value.settings);
     persist({
-      ...value,
+      ...(same ? value : interruptTimer(value, time)),
       mode: "focus",
       activeTask: task,
       sessionTask: same ? value.sessionTask : task,
@@ -171,33 +178,25 @@ export function usePomodoro() {
     if (!ready) return false;
     const value = finishTimer(current.current, Date.now());
     if ((value.activeTask?.id ?? null) === (task?.id ?? null)) return true;
-    if (value.mode === "focus" && value.sessionId) {
-      if (!window.confirm("切换关联任务会放弃当前未完成的专注，继续吗？")) return false;
-      persist({
-        ...value,
-        activeTask: task,
-        sessionTask: null,
-        endsAt: null,
-        startedAt: null,
-        sessionId: null,
-        remaining: modeSeconds("focus", value.settings),
-        sessionSeconds: modeSeconds("focus", value.settings),
-      });
-    } else persist({ ...value, activeTask: task });
+    persist(associateTask(value, task));
     return true;
   };
-  const setFocusDuration = (minutes: number) => {
-    if (!ready || !Number.isInteger(minutes) || minutes < 1 || minutes > 180) return false;
+  const setDuration = (minutes: number) => {
+    if (
+      !ready ||
+      !Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > (current.current.mode === "focus" ? 180 : 60)
+    )
+      return false;
     const value = finishTimer(current.current, Date.now());
     if (
       value.sessionId &&
-      value.mode === "focus" &&
-      !window.confirm("修改时长会放弃本轮未完成的专注，重新准备计时，继续吗？")
+      !window.confirm("修改时长会结束本轮计时，已专注时间保留为中断记录，继续吗？")
     )
       return false;
     persist({
-      ...value,
-      mode: "focus",
+      ...interruptTimer(value, Date.now()),
       remaining: minutes * 60,
       sessionSeconds: minutes * 60,
       endsAt: null,
@@ -217,7 +216,7 @@ export function usePomodoro() {
     )
       return false;
     persist({
-      ...value,
+      ...interruptTimer(value, Date.now()),
       activeTask: null,
       sessionTask: null,
       mode: "focus",
@@ -266,7 +265,7 @@ export function usePomodoro() {
     toggle,
     startTask,
     selectTask,
-    setFocusDuration,
+    setDuration,
     finishTask,
     renameTask,
     reset,

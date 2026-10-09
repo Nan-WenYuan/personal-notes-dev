@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Archive, ArrowLeft, RotateCcw, Trash2, Play, Pause } from "lucide-react";
+import { Archive, ArrowLeft, RotateCcw, Trash2, Play, Pause, GripVertical } from "lucide-react";
 import { clockText } from "../features/pomodoro/model";
 import { taskProgress } from "../features/pomodoro/taskProgress";
 import "./QuadrantBoard.css";
@@ -44,6 +44,26 @@ export function QuadrantBoard({
   const [deleted, setDeleted] = useState<{ task: Task; index: number } | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [completedUndo, setCompletedUndo] = useState<Task | null>(null);
+  const [moveMenu, setMoveMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const moveMenuRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: string; x: number; y: number; moved: boolean } | null>(null);
+  const [draggedTask, setDraggedTask] = useState<string | null>(null);
+  const [dropQuadrant, setDropQuadrant] = useState<number | null>(null);
+  useEffect(() => {
+    if (!moveMenu) return;
+    const close = (event: PointerEvent) => {
+      if (!moveMenuRef.current?.contains(event.target as Node)) setMoveMenu(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMoveMenu(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [moveMenu]);
   useEffect(() => {
     if (!completedUndo) return;
     const timeout = window.setTimeout(() => setCompletedUndo(null), 8000);
@@ -98,11 +118,39 @@ export function QuadrantBoard({
         }
       });
   };
+  const moveTask = (id: string, quadrant: number) => {
+    save(current.current.map((task) => (task.id === id ? { ...task, quadrant } : task)));
+    setMoveMenu(null);
+  };
   return (
     <section
       className="quadrant-board absolute inset-0 z-10 bg-paper flex flex-col"
       aria-label="四象限任务面板"
     >
+      {moveMenu && (
+        <div
+          ref={moveMenuRef}
+          role="menu"
+          aria-label="移动任务"
+          className="popup-menu fixed z-[9999] p-1.5 bg-cloud border border-paper-deep rounded-lg shadow-lg"
+          style={{
+            left: Math.max(8, Math.min(moveMenu.x, window.innerWidth - 200)),
+            top: Math.max(8, Math.min(moveMenu.y, window.innerHeight - 160)),
+          }}
+        >
+          {quadrants.map((quadrant, index) => (
+            <button
+              key={index}
+              role="menuitem"
+              className="block w-full text-left px-3 py-1.5 text-xs hover:bg-bamboo-mist rounded"
+              disabled={tasks.find((task) => task.id === moveMenu.id)?.quadrant === index}
+              onClick={() => moveTask(moveMenu.id, index)}
+            >
+              移到{quadrant.title}
+            </button>
+          ))}
+        </div>
+      )}
       {focusTask && (
         <div
           className="pomodoro-modal"
@@ -345,8 +393,9 @@ export function QuadrantBoard({
             return (
               <section
                 key={index}
+                data-quadrant={index}
                 style={{ "--quadrant-color": quadrant.color } as CSSProperties}
-                className="quadrant-card flex flex-col overflow-hidden"
+                className={`quadrant-card flex flex-col overflow-hidden ${dropQuadrant === index ? "is-drop-target" : ""}`}
               >
                 <header
                   className="px-4 py-3 border-b border-paper-deep/30 flex items-center justify-between"
@@ -378,7 +427,12 @@ export function QuadrantBoard({
                     return (
                       <div
                         key={task.id}
-                        className={`quadrant-task-row group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15 ${active ? "is-focusing" : ""}`}
+                        className={`quadrant-task-row group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15 ${active ? "is-focusing" : ""} ${draggedTask === task.id ? "opacity-40" : ""}`}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setMoveMenu({ id: task.id, x: event.clientX, y: event.clientY });
+                        }}
                         onClick={(event) => {
                           const target = event.target as HTMLElement;
                           if (target.closest("button, input, a")) return;
@@ -390,6 +444,55 @@ export function QuadrantBoard({
                           input.setSelectionRange(input.value.length, input.value.length);
                         }}
                       >
+                        <button
+                          className="quadrant-drag-handle"
+                          aria-label={`拖动任务：${task.text}`}
+                          title="拖动到其他象限，也可右键移动"
+                          onPointerDown={(event) => {
+                            if (event.button !== 0) return;
+                            event.preventDefault();
+                            drag.current = {
+                              id: task.id,
+                              x: event.clientX,
+                              y: event.clientY,
+                              moved: false,
+                            };
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                          }}
+                          onPointerMove={(event) => {
+                            const value = drag.current;
+                            if (!value) return;
+                            if (
+                              Math.hypot(event.clientX - value.x, event.clientY - value.y) < 6 &&
+                              !value.moved
+                            )
+                              return;
+                            value.moved = true;
+                            setDraggedTask(value.id);
+                            const target = document
+                              .elementFromPoint(event.clientX, event.clientY)
+                              ?.closest<HTMLElement>("[data-quadrant]");
+                            setDropQuadrant(target ? Number(target.dataset.quadrant) : null);
+                          }}
+                          onPointerUp={(event) => {
+                            const value = drag.current;
+                            const target = document
+                              .elementFromPoint(event.clientX, event.clientY)
+                              ?.closest<HTMLElement>("[data-quadrant]");
+                            if (value?.moved && target)
+                              moveTask(value.id, Number(target.dataset.quadrant));
+                            drag.current = null;
+                            setDraggedTask(null);
+                            setDropQuadrant(null);
+                          }}
+                          onPointerCancel={() => {
+                            drag.current = null;
+                            setDraggedTask(null);
+                            setDropQuadrant(null);
+                          }}
+                        >
+                          <GripVertical size={12} />
+                        </button>
                         {active && (
                           <div
                             className="quadrant-task-progress"

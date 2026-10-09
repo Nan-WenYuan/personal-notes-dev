@@ -1,5 +1,22 @@
 import { expect, test } from "vitest";
 import { summarizeTask, tomatoKind } from "./taskSummary";
+test("interrupted focus does not count as a completed tomato", () => {
+  expect(
+    summarizeTask(
+      [
+        {
+          id: "partial",
+          taskId: "task",
+          startedAt: 1,
+          completedAt: 20001,
+          seconds: 20,
+          interrupted: true,
+        },
+      ],
+      "task",
+    ),
+  ).toEqual([]);
+});
 const record = (seconds: number, taskId = "task") => ({
   id: crypto.randomUUID(),
   seconds,

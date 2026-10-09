@@ -218,7 +218,7 @@ const staticComponents: Components = {
       {children}
     </h4>
   ),
-  p: ({ children }) => <p className="text-ink-soft leading-[1.9]">{children}</p>,
+  p: ({ children }) => <p className="text-ink-soft leading-[1.6] mb-[0.4em]">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
   em: ({ children }) => <em className="italic text-bamboo-light">{children}</em>,
   blockquote: Blockquote,

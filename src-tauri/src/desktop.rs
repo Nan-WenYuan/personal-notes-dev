@@ -1090,8 +1090,9 @@ pub async fn open_notepad_window(
     app: AppHandle,
     note_id: Option<String>,
     bounds: Option<WindowBounds>,
+    pinned: bool,
 ) -> Result<String, AppError> {
-    open_notepad_window_now(&app, note_id.as_deref(), bounds)
+    open_notepad_window_now(&app, note_id.as_deref(), bounds, pinned)
 }
 
 pub async fn open_tile_window(
@@ -1333,7 +1334,7 @@ fn handle_tray_menu_event(app: &AppHandle, id: &str) -> Result<(), Box<dyn Error
     match tray_menu_action(id) {
         Some(TrayMenuAction::ShowMain) => show_main_window(app)?,
         Some(TrayMenuAction::QuickNote) => {
-            open_notepad_window_now(app, None, None)?;
+            open_notepad_window_now(app, None, None, false)?;
         }
         Some(TrayMenuAction::ToggleCloseToTray) => {
             let config = toggle_close_to_tray(app)?;
@@ -1437,8 +1438,9 @@ fn open_notepad_window_now(
     app: &AppHandle,
     note_id: Option<&str>,
     bounds: Option<WindowBounds>,
+    pinned: bool,
 ) -> Result<String, AppError> {
-    if note_id.is_none() {
+    if note_id.is_none() && !pinned {
         if let Some(reused) = activate_pooled_notepad(app, bounds) {
             clear_hidden_window_state(app);
             return Ok(reused);
@@ -1448,12 +1450,15 @@ fn open_notepad_window_now(
     let locale = configured_locale();
     let label = notepad_window_label(note_id);
     let specs = saved_surface_specs(app);
-    let url = match note_id {
+    let mut url = match note_id {
         Some(id) => format!("index.html?view=notepad&noteId={id}"),
         None => "index.html?view=notepad".to_string(),
     };
+    if pinned {
+        url.push_str("&pinned=1");
+    }
 
-    open_or_focus_window(
+    let result = open_or_focus_window(
         app,
         &label,
         WindowOpenOptions {
@@ -1461,12 +1466,19 @@ fn open_notepad_window_now(
             title: locales::notepad_window_title(locale).to_string(),
             specs,
             decorations: false,
-            always_on_top: false,
+            always_on_top: pinned,
             shadow: false,
             skip_taskbar: true,
             bounds,
         },
-    )
+    )?;
+    if pinned {
+        if let Some(window) = app.get_webview_window(&label) {
+            window.set_always_on_top(true)?;
+            let _ = window.emit("notepad:set-pinned", true);
+        }
+    }
+    Ok(result)
 }
 
 /// 调整池中隐藏 notepad 窗口的 WebView2 内存占用档位（仅 Windows）。
@@ -2002,7 +2014,7 @@ fn setup_global_shortcut_plugin(app: &AppHandle) -> tauri::Result<()> {
                         };
                         if let Err(error) = app.run_on_main_thread(move || {
                             if let Err(error) =
-                                open_notepad_window_now(&app_for_closure, None, bounds)
+                                open_notepad_window_now(&app_for_closure, None, bounds, false)
                             {
                                 eprintln!("failed to open notepad from global shortcut: {error}");
                             }

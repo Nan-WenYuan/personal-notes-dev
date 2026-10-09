@@ -14,7 +14,38 @@ concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.release.outputs.published }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip already published versions
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          from pathlib import Path
+          version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/tags/v{version}",
+              headers={"Authorization": "Bearer " + os.environ["GITHUB_TOKEN"], "Accept": "application/vnd.github+json"})
+          try:
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  published = not json.load(response)["draft"]
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              published = False
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"published={str(published).lower()}\n")
+          print(f"v{version}: already published, skipping duplicate build" if published else f"v{version}: build required")
+          PY
   build:
+    needs: prepare
+    if: needs.prepare.outputs.published != 'true'
     strategy:
       fail-fast: false
       matrix:

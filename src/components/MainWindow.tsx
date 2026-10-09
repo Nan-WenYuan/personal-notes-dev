@@ -101,7 +101,7 @@ import {
   getNoteContextMenuItems,
   type NoteContextMenuAction,
 } from "../features/notes/noteContextMenu";
-import { openNotepadWindow, takeStartupFile, toggleTileWindow } from "../features/windows/api";
+import { openNotepadWindow, takeStartupFile } from "../features/windows/api";
 import {
   closeCurrentWindow,
   minimizeCurrentWindow,
@@ -355,8 +355,8 @@ function runEditorCommand(textarea: HTMLTextAreaElement | null, command: "undo" 
   return document.execCommand(command);
 }
 
-export function pinTileButtonTitle(isPinned: boolean): string {
-  return isPinned ? "取消钉屏" : "钉到屏幕";
+export function pinTileButtonTitle(): string {
+  return "打开置顶便签";
 }
 
 interface LoadEpoch {
@@ -475,7 +475,7 @@ export function MainWindow({
   const [noteTransitionKey, setNoteTransitionKey] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteExiting, setDeleteExiting] = useState(false);
-  const [pinnedTileIds, setPinnedTileIds] = useState<Set<string>>(new Set());
+  const [, setPinnedTileIds] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<string[]>([]);
   const [categorySortTarget, setCategorySortTarget] = useState<string | null>(null);
   const [categorySortAfter, setCategorySortAfter] = useState(false);
@@ -791,6 +791,20 @@ export function MainWindow({
     return loadedNotes;
   }, []);
 
+  useEffect(() => {
+    const unlisten = listen<{ category: string }>("notepad-saved", ({ payload }) => {
+      setCollapsedCategories((current) => {
+        const next = new Set(current);
+        next.delete(payload.category);
+        return next;
+      });
+      void refreshNotes().catch((error) => showToast(getErrorMessage(error)));
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [refreshNotes]);
+
   const clearCurrentNote = useCallback(() => {
     diskBaseline.current = null;
     setKnowledgeConflict(false);
@@ -876,12 +890,7 @@ export function MainWindow({
         setNotes(loadedNotes);
         setCategories(loadedCategories);
         setCollapsedCategories(new Set(loadedCategories));
-        if (loadedNotes[0]) {
-          const note = await getNote(loadedNotes[0].id);
-          if (!cancelled) applyNote(note);
-        } else {
-          clearCurrentNote();
-        }
+        clearCurrentNote();
 
         if (!cancelled) {
           const startupFile = await takeStartupFile();
@@ -1350,7 +1359,41 @@ export function MainWindow({
       // 非强制保存（自动保存、切换前保存）在没有未保存修改时直接视为成功
       if (!force && saveStateRef.current !== "dirty") return true;
       const id = selectedIdRef.current;
-      if (!id) return false;
+      if (!id) {
+        const draftTitle = titleValueRef.current;
+        const draftContent = contentValueRef.current;
+        if (!draftTitle.trim() && !draftContent.trim() && !force) return true;
+        const epoch = loadEpoch.peek();
+        saveStateRef.current = "saving";
+        setSaveState("saving");
+        try {
+          const note = await createNote({
+            title: draftTitle,
+            content: draftContent,
+            category: activeCategory,
+          });
+          replaceNoteMetadata(note);
+          if (loadEpoch.isCurrent(epoch) && selectedIdRef.current === null) {
+            const latestTitle = titleValueRef.current;
+            const latestContent = contentValueRef.current;
+            applyNote(note);
+            if (latestTitle !== draftTitle || latestContent !== draftContent) {
+              titleValueRef.current = latestTitle;
+              contentValueRef.current = latestContent;
+              setTitle(latestTitle);
+              setContent(latestContent);
+              saveStateRef.current = "dirty";
+              setSaveState("dirty");
+            }
+          }
+          return true;
+        } catch (error) {
+          saveStateRef.current = "error";
+          setSaveState("error");
+          showToast(getErrorMessage(error));
+          return false;
+        }
+      }
 
       // 在保存瞬间对当前笔记做快照；之后用户切换笔记不影响本次写入的内容，
       // 保存完成后也只在"仍停留在这篇笔记"时才更新保存状态
@@ -1420,7 +1463,7 @@ export function MainWindow({
         return false;
       }
     },
-    [replaceNoteMetadata],
+    [replaceNoteMetadata, activeCategory, applyNote, loadEpoch],
   );
 
   const saveCurrentNote = useCallback(
@@ -1488,7 +1531,7 @@ export function MainWindow({
   }, [saveCurrentNote]);
 
   useEffect(() => {
-    if (!selectedId || saveState !== "dirty") return undefined;
+    if (saveState !== "dirty") return undefined;
     if (isExternal) {
       if (!settingsConfig?.externalFileAutoSave) return undefined;
     } else {
@@ -2135,22 +2178,15 @@ export function MainWindow({
   };
 
   const markDirty = () => {
-    if (!selectedId) return;
     saveStateRef.current = "dirty";
     setSaveState("dirty");
   };
 
   const ensureNoteSaved = useCallback(async (): Promise<string | null> => {
-    if (selectedId) return selectedId;
-    try {
-      const note = await createNote({ title, content, category: activeCategory });
-      replaceNoteMetadata(note);
-      applyNote(note);
-      return note.id;
-    } catch {
-      return null;
-    }
-  }, [selectedId, title, content, activeCategory, replaceNoteMetadata, applyNote]);
+    if (selectedIdRef.current) return selectedIdRef.current;
+    if (!(await saveCurrentNote(true))) return null;
+    return selectedIdRef.current;
+  }, [saveCurrentNote]);
 
   const {
     handlePaste: imagePasteHandler,
@@ -2468,21 +2504,13 @@ export function MainWindow({
 
   const handlePinEntry = async () => {
     if (!selectedId) return;
-    const isPinned = pinnedTileIds.has(selectedId);
-    if (!isPinned) {
-      await saveCurrentNote();
-    }
+    if (!(await saveCurrentNote())) return;
     try {
-      const pinned = await toggleTileWindow(selectedId);
-      setPinnedTileIds((previous) => {
-        return syncPinnedTileIds(previous, selectedId, pinned);
-      });
+      await openNotepadWindow(selectedId, undefined, true);
     } catch (error) {
       showToast(getErrorMessage(error));
     }
   };
-
-  const selectedTilePinned = selectedId ? pinnedTileIds.has(selectedId) : false;
 
   const toggleMaximize = () => {
     void toggleMaximizeCurrentWindow().then(() => isCurrentWindowMaximized().then(setIsMaximized));
@@ -3366,27 +3394,11 @@ export function MainWindow({
                 <button
                   onClick={() => void handlePinEntry()}
                   disabled={!selectedId}
-                  aria-label={pinTileButtonTitle(selectedTilePinned)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
-                    selectedTilePinned
-                      ? "text-bamboo bg-bamboo-mist/40 hover:text-red-400 hover:bg-danger-bg"
-                      : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50"
-                  }`}
-                  title={pinTileButtonTitle(selectedTilePinned)}
+                  aria-label={pinTileButtonTitle()}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50"
+                  title={pinTileButtonTitle()}
                 >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 17v5" />
-                    <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1 1 1 0 0 1 1 1z" />
-                  </svg>
+                  <StickyNote size={13} aria-hidden="true" />
                 </button>
 
                 <button
@@ -3442,7 +3454,7 @@ export function MainWindow({
 
                 <button
                   onClick={() => void saveCurrentNote(true)}
-                  disabled={!selectedId || saveState === "saving"}
+                  disabled={saveState === "saving"}
                   className="px-2.5 h-7 flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                   title={t("common.save", { defaultValue: "保存" })}
                 >
@@ -3592,7 +3604,6 @@ export function MainWindow({
                     }
                   }}
                   placeholder={t("common.untitledNote", { defaultValue: "无标题笔记" })}
-                  disabled={!selectedId}
                   className="w-full text-[20px] font-display font-bold text-ink placeholder:text-ink-ghost/50 tracking-wide disabled:opacity-60"
                 />
               )}
@@ -3632,7 +3643,7 @@ export function MainWindow({
               ref={splitContainerRef}
               className="flex-1 flex min-h-0 animate-view-fade"
             >
-              {!selectedId && !isLoading ? (
+              {isLoading ? (
                 <div className="flex-1 flex items-center justify-center text-[13px] text-ink-ghost">
                   {t("main.editor.emptyHint", { defaultValue: "选择或新建一篇笔记" })}
                 </div>
@@ -3649,7 +3660,7 @@ export function MainWindow({
                       }}
                       onEnsureNoteSaved={ensureNoteSaved}
                       imageBaseDir={imageBaseDir ?? undefined}
-                      disabled={!selectedId}
+                      disabled={isLoading}
                       fontSize={settingsConfig?.fontSize ?? 14}
                       onError={showToast}
                     />
@@ -3765,7 +3776,7 @@ export function MainWindow({
                             defaultValue: "开始写作……",
                           })}
                           spellCheck={false}
-                          disabled={!selectedId}
+                          disabled={isLoading}
                         />
                       </div>
                     </div>
@@ -4082,28 +4093,29 @@ export function MainWindow({
                     {label}
                   </button>
                 ))}
-              {categoryMenu.category && categoryMenu.category !== "Agent知识库" && (
-                <>
-                  <button
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setCategoryMenuClosing(true);
-                      setRenamingCategory(categoryMenu.category);
-                      setRenameCategoryValue(categoryMenu.category);
-                    }}
-                    className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
-                  >
-                    {t("main.category.rename", { defaultValue: "重命名" })}
-                  </button>
-                  <button
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => switchCategoryMenuPanel(true)}
-                    className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer border-t border-paper-deep/20 outline-none"
-                  >
-                    {t("main.category.delete", { defaultValue: "删除分类" })}
-                  </button>
-                </>
-              )}
+              {categoryMenu.category &&
+                !["Agent知识库", "便签"].includes(categoryMenu.category) && (
+                  <>
+                    <button
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setCategoryMenuClosing(true);
+                        setRenamingCategory(categoryMenu.category);
+                        setRenameCategoryValue(categoryMenu.category);
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                    >
+                      {t("main.category.rename", { defaultValue: "重命名" })}
+                    </button>
+                    <button
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => switchCategoryMenuPanel(true)}
+                      className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer border-t border-paper-deep/20 outline-none"
+                    >
+                      {t("main.category.delete", { defaultValue: "删除分类" })}
+                    </button>
+                  </>
+                )}
             </div>
           )}
         </div>

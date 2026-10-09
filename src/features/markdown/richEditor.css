@@ -114,7 +114,10 @@
   font-size: inherit !important;
   color: var(--color-ink-soft);
   font-family: inherit;
-  line-height: 1.9;
+  line-height: 1.6;
+}
+.rich-editor .vditor-reset p {
+  margin: 0 0 0.4em;
 }
 .rich-editor .vditor-reset h1,
 .rich-editor .vditor-reset h2 {

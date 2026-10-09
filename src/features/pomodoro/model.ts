@@ -19,6 +19,7 @@ export const defaultSettings: TimerSettings = {
 };
 export const durations: Record<TimerMode, number> = { focus: 1500, short: 300, long: 900 };
 export interface FocusRecord {
+  interrupted?: boolean;
   taskId?: string;
   taskTitle?: string;
   id: string;
@@ -68,6 +69,45 @@ export function secondsLeft(state: TimerState, now: number): number {
   return state.endsAt === null
     ? state.remaining
     : Math.max(0, Math.ceil((state.endsAt - now) / 1000));
+}
+export function associateTask(state: TimerState, task: TimerState["activeTask"]): TimerState {
+  return {
+    ...state,
+    activeTask: task,
+    ...(state.mode === "focus" && state.sessionId ? { sessionTask: task } : {}),
+  };
+}
+export function interruptTimer(state: TimerState, now: number): TimerState {
+  const value = finishTimer(state, now);
+  const elapsed = Math.max(0, value.sessionSeconds - secondsLeft(value, now));
+  const record: FocusRecord[] =
+    value.mode === "focus" &&
+    value.sessionId &&
+    value.startedAt !== null &&
+    elapsed > 0 &&
+    !value.records.some((r) => r.id === value.sessionId)
+      ? [
+          {
+            id: value.sessionId,
+            startedAt: value.startedAt,
+            completedAt: now,
+            seconds: elapsed,
+            interrupted: true,
+            ...(value.sessionTask
+              ? { taskId: value.sessionTask.id, taskTitle: value.sessionTask.title }
+              : {}),
+          },
+        ]
+      : [];
+  return {
+    ...value,
+    records: [...value.records, ...record],
+    endsAt: null,
+    startedAt: null,
+    sessionId: null,
+    sessionTask: null,
+    lastSeen: now,
+  };
 }
 export function recoverTimer(saved: TimerState, now: number): TimerState {
   const settings = { ...defaultSettings, ...saved.settings };

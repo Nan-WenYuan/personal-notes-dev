@@ -7,10 +7,15 @@ export interface WindowBounds {
   height: number;
 }
 
-export function openNotepadWindow(noteId?: string, bounds?: WindowBounds): Promise<string> {
+export function openNotepadWindow(
+  noteId?: string,
+  bounds?: WindowBounds,
+  pinned = false,
+): Promise<string> {
   return invoke("open_notepad_window", {
     noteId: noteId ?? null,
     bounds: bounds ?? null,
+    ...(pinned ? { pinned: true } : {}),
   });
 }
 
