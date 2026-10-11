@@ -214,53 +214,6 @@ struct MetadataFile {
     notes: Vec<NoteMetadata>,
 }
 
-fn category_is_within(category: &str, parent: &str) -> bool {
-    category == parent || category.starts_with(&format!("{parent}/"))
-}
-
-fn validate_category_path(category: &str) -> Result<(), AppError> {
-    if category.is_empty() {
-        return Ok(());
-    }
-    if category.split('/').any(|part| {
-        part.trim().is_empty()
-            || part == "."
-            || part.contains("..")
-            || part.chars().any(|c| "\\:*?\"<>|".contains(c))
-            || part.ends_with('.')
-            || part.ends_with(' ')
-    }) {
-        return Err(AppError::category_name_invalid_chars());
-    }
-    Ok(())
-}
-
-fn collect_category_paths(
-    dir: &Path,
-    parent: &str,
-    categories: &mut Vec<String>,
-) -> Result<(), AppError> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        // A Markdown file's adjacent directory contains its attachments, not categories.
-        if dir.join(format!("{name}.md")).is_file() {
-            continue;
-        }
-        let category = if parent.is_empty() {
-            name
-        } else {
-            format!("{parent}/{name}")
-        };
-        categories.push(category.clone());
-        collect_category_paths(&entry.path(), &category, categories)?;
-    }
-    Ok(())
-}
-
 #[derive(Debug, Clone)]
 pub struct NoteStore {
     config_dir: PathBuf,
@@ -856,7 +809,6 @@ impl NoteStore {
     }
 
     pub fn create_note(&self, request: SaveNoteRequest) -> Result<Note, AppError> {
-        validate_category_path(&request.category)?;
         self.ensure_storage()?;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
@@ -922,7 +874,6 @@ impl NoteStore {
         request: SaveNoteRequest,
         expected: Option<&str>,
     ) -> Result<Note, AppError> {
-        validate_category_path(&request.category)?;
         self.ensure_storage()?;
         let mut request = request;
         let mut metadata_file = self.load_metadata()?;
@@ -1174,7 +1125,14 @@ impl NoteStore {
         let notes_dir = self.notes_dir();
         fs::create_dir_all(&notes_dir)?;
         let mut categories = Vec::new();
-        collect_category_paths(&notes_dir, "", &mut categories)?;
+        for entry in fs::read_dir(&notes_dir)? {
+            let entry = entry?;
+            let sibling_note =
+                notes_dir.join(format!("{}.md", entry.file_name().to_string_lossy()));
+            if entry.path().is_dir() && !sibling_note.is_file() {
+                categories.push(entry.file_name().to_string_lossy().to_string());
+            }
+        }
         let order: Vec<String> = if self.data_dir.join("分类排序.json").exists() {
             serde_json::from_str(&fs::read_to_string(self.data_dir.join("分类排序.json"))?)?
         } else {
@@ -1205,7 +1163,9 @@ impl NoteStore {
         if name.is_empty() {
             return Err(AppError::category_name_empty());
         }
-        validate_category_path(name)?;
+        if name.contains('/') || name.contains('\\') || name.contains(':') || name.contains("..") {
+            return Err(AppError::category_name_invalid_chars());
+        }
         let notes_dir = self.notes_dir();
         let path = notes_dir.join(name);
         fs::create_dir_all(&path)?;
@@ -1223,9 +1183,11 @@ impl NoteStore {
         if new_name.is_empty() {
             return Err(AppError::category_name_empty());
         }
-        validate_category_path(old_name)?;
-        validate_category_path(new_name)?;
-        if category_is_within(new_name, old_name) {
+        if new_name.contains('/')
+            || new_name.contains('\\')
+            || new_name.contains(':')
+            || new_name.contains("..")
+        {
             return Err(AppError::category_name_invalid_chars());
         }
         let notes_dir = self.notes_dir();
@@ -1243,8 +1205,8 @@ impl NoteStore {
         if order_path.exists() {
             let mut order: Vec<String> = serde_json::from_str(&fs::read_to_string(order_path)?)?;
             for category in &mut order {
-                if category_is_within(category, old_name) {
-                    *category = format!("{}{}", new_name, &category[old_name.len()..]);
+                if category == old_name {
+                    *category = new_name.to_string();
                 }
             }
             self.save_category_order(&order)?;
@@ -1252,8 +1214,8 @@ impl NoteStore {
 
         let mut metadata_file = self.load_metadata()?;
         for note in &mut metadata_file.notes {
-            if category_is_within(&note.category, old_name) {
-                note.category = format!("{}{}", new_name, &note.category[old_name.len()..]);
+            if note.category == old_name {
+                note.category = new_name.to_string();
             }
         }
         self.save_metadata(&metadata_file)?;
@@ -1267,7 +1229,6 @@ impl NoteStore {
                 "默认分类不能删除",
             ));
         }
-        validate_category_path(name)?;
         self.ensure_storage()?;
         let notes_dir = self.notes_dir();
         let category_path = notes_dir.join(name);
@@ -1291,8 +1252,8 @@ impl NoteStore {
             // Move all notes in this category to uncategorized (root)
             let mut metadata_file = self.load_metadata()?;
             for note in &mut metadata_file.notes {
-                if category_is_within(&note.category, name) {
-                    let old_path = self.note_path_in_category(&note.file_name, &note.category);
+                if note.category == name {
+                    let old_path = category_path.join(&note.file_name);
                     let new_path = notes_dir.join(&note.file_name);
                     if old_path.exists() {
                         fs::rename(&old_path, &new_path)?;
@@ -1314,7 +1275,7 @@ impl NoteStore {
             let mut metadata_file = self.load_metadata()?;
             let mut changed = false;
             for note in &mut metadata_file.notes {
-                if category_is_within(&note.category, name) {
+                if note.category == name {
                     note.category = String::new();
                     changed = true;
                 }
@@ -1331,7 +1292,6 @@ impl NoteStore {
         id: &str,
         new_category: &str,
     ) -> Result<NoteMetadata, AppError> {
-        validate_category_path(new_category)?;
         self.ensure_storage()?;
         let mut metadata_file = self.load_metadata()?;
         let note = metadata_file
@@ -1797,10 +1757,14 @@ impl NoteStore {
         let mut notes = Vec::new();
 
         self.scan_dir_for_notes(&notes_dir, "", &mut notes)?;
-        let mut categories = Vec::new();
-        collect_category_paths(&notes_dir, "", &mut categories)?;
-        for category in categories {
-            self.scan_dir_for_notes(&notes_dir.join(&category), &category, &mut notes)?;
+
+        for entry in fs::read_dir(&notes_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                let category = entry.file_name().to_string_lossy().to_string();
+                self.scan_dir_for_notes(&path, &category, &mut notes)?;
+            }
         }
 
         Ok(MetadataFile { notes })
@@ -2278,63 +2242,6 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     use std::{fs, path::PathBuf};
-
-    #[test]
-    fn nested_categories_keep_descendant_notes_and_attachments() {
-        let store = test_store("nested-categories");
-        store.create_category("工作/账号/工具").unwrap();
-        store.create_category("工作副本").unwrap();
-        let note = store
-            .create_note(SaveNoteRequest {
-                title: "测试".into(),
-                content: "内容".into(),
-                category: "工作/账号/工具".into(),
-            })
-            .unwrap();
-        let path = store.note_path_in_category(&note.file_name, &note.category);
-        fs::create_dir_all(path.with_extension("").join("images")).unwrap();
-        fs::write(path.with_extension("").join("images/a.png"), b"image").unwrap();
-        assert!(store
-            .list_categories()
-            .unwrap()
-            .contains(&"工作/账号/工具".into()));
-        assert_eq!(store.list_categories().unwrap().len(), 6);
-        assert_eq!(store.rebuild_metadata().unwrap().notes.len(), 1);
-        store
-            .save_category_order(&["工作/账号/工具".into(), "工作".into()])
-            .unwrap();
-        store.rename_category("工作", "项目").unwrap();
-        assert_eq!(
-            store.read_note(&note.id).unwrap().category,
-            "项目/账号/工具"
-        );
-        assert_eq!(store.read_note(&note.id).unwrap().content, "内容");
-        assert!(fs::read_to_string(store.data_dir.join("分类排序.json"))
-            .unwrap()
-            .contains("项目/账号/工具"));
-        assert!(store.rename_category("项目", "项目/自己").is_err());
-        store.delete_category("项目").unwrap();
-        let note = store.read_note(&note.id).unwrap();
-        assert_eq!(note.category, "");
-        assert_eq!(note.content, "内容");
-        assert!(store
-            .note_path_in_category(&note.file_name, "")
-            .with_extension("")
-            .join("images/a.png")
-            .is_file());
-        assert!(store
-            .list_categories()
-            .unwrap()
-            .contains(&"工作副本".into()));
-        for invalid in ["../逃逸", "/绝对", "A//B", "A/../B", "A\\B", "C:/资料"] {
-            assert!(store.create_category(invalid).is_err(), "{invalid}");
-            assert!(
-                store.move_note_to_category(&note.id, invalid).is_err(),
-                "{invalid}"
-            );
-        }
-        fs::remove_dir_all(store.data_dir()).unwrap();
-    }
 
     #[test]
     fn category_order_survives_store_reopen() {
