@@ -1,5 +1,5 @@
 import { useNoteCategoryDrag } from "../features/notes/useNoteCategoryDrag";
-import { FolderPlus, Bot, StickyNote, Inbox, Folder } from "lucide-react";
+import { FolderPlus, Bot, StickyNote, Inbox, Folder, ChevronRight, FileText } from "lucide-react";
 import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -3169,7 +3169,7 @@ export function MainWindow({
                       return (
                         <div
                           key={group.category || "__uncategorized__"}
-                          style={{ marginLeft: (group.category.split("/").length - 1) * 14 }}
+                          style={{ marginLeft: (group.category.split("/").length - 1) * 18 }}
                           data-note-drop-category={group.category}
                           data-default-category-boundary={
                             group.category === "" &&
@@ -3182,19 +3182,12 @@ export function MainWindow({
                           className={`relative px-2 mb-0.5 ${draggingCategory?.id === group.category ? "opacity-40" : ""} ${categorySortTarget === group.category && !["Agent知识库", "便签", ""].includes(group.category) && draggingCategory?.id !== group.category ? `category-sort-target ${categorySortAfter ? "category-sort-after" : ""}` : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
                         >
                           <div
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
-                              dragOverCategory === group.category
-                                ? "bg-bamboo/15 border border-bamboo/40 ring-1 ring-bamboo/20"
-                                : isCollapsed
-                                  ? "bg-transparent border border-bamboo/15"
-                                  : "bg-bamboo/8 border border-bamboo/15 rounded-b-none"
-                            }`}
+                            className={`flex items-center gap-1.5 px-1.5 h-8 rounded group/cat cursor-pointer select-none hover:bg-bamboo/8 ${dragOverCategory === group.category ? "bg-bamboo/15 ring-1 ring-bamboo/30" : ""}`}
                             onClick={() => {
                               if (consumeCategoryClick()) return;
                               setSelectedNoteIds(new Set());
                               selectionAnchor.current = null;
                               setActiveCategory(group.category);
-                              toggleCategoryCollapse(group.category);
                             }}
                             onPointerDown={(event) => {
                               if ((event.target as HTMLElement).closest("input,button")) return;
@@ -3230,19 +3223,26 @@ export function MainWindow({
                               if (noteId) void handleMoveNote(noteId, group.category);
                             }}
                           >
-                            <svg
-                              width="10"
-                              height="10"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className={`text-bamboo/50 shrink-0 transition-transform duration-200 ${isCollapsed ? "" : "rotate-90"}`}
-                            >
-                              <polyline points="9 18 15 12 9 6" />
-                            </svg>
+                            {hasChildren || group.notes.length > 0 ? (
+                              <button
+                                type="button"
+                                aria-label={`${isCollapsed ? "展开" : "收起"}${categoryLabel(group.category) || "未分类"}`}
+                                aria-expanded={!isCollapsed}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleCategoryCollapse(group.category);
+                                }}
+                                className="w-4 h-6 shrink-0 flex items-center justify-center text-bamboo/70 hover:text-bamboo cursor-pointer rounded focus-visible:outline focus-visible:outline-1 focus-visible:outline-bamboo"
+                              >
+                                <ChevronRight
+                                  size={14}
+                                  strokeWidth={2}
+                                  className={`transition-transform duration-150 ${isCollapsed ? "" : "rotate-90"}`}
+                                />
+                              </button>
+                            ) : (
+                              <span className="w-4 shrink-0" aria-hidden="true" />
+                            )}
                             <span className="text-bamboo/50 shrink-0">
                               {group.category === "Agent知识库" ? (
                                 <Bot size={13} strokeWidth={1.8} />
@@ -3285,11 +3285,7 @@ export function MainWindow({
                             className={`category-body ${isCollapsed || (hasChildren && !group.notes.length) ? "" : "expanded"}`}
                           >
                             <div
-                              className={`category-body-inner border border-t-0 rounded-b-lg pb-1 pt-1 transition-colors duration-200 ${
-                                dragOverCategory === group.category
-                                  ? "bg-bamboo/10 border-bamboo/40 ring-1 ring-bamboo/20"
-                                  : "bg-bamboo/[0.03] border-bamboo/10"
-                              }`}
+                              className={`category-body-inner pl-10 ${dragOverCategory === group.category ? "bg-bamboo/8" : ""}`}
                               onDragOver={(e) => {
                                 e.preventDefault();
                                 e.dataTransfer.dropEffect = "move";
@@ -3307,81 +3303,80 @@ export function MainWindow({
                                 if (noteId) void handleMoveNote(noteId, group.category);
                               }}
                             >
-                              {group.notes.length === 0 ? (
-                                <div className="px-3 py-3 text-center text-[11px] text-ink-ghost/50">
-                                  {t("main.category.emptyFolder", { defaultValue: "空文件夹" })}
-                                </div>
-                              ) : (
-                                group.notes.map((note) => {
-                                  const isSelected = note.id === selectedId;
-                                  const isHovered = note.id === hoveredId;
+                              {group.notes.map((note) => {
+                                const isSelected = note.id === selectedId;
+                                const isHovered = note.id === hoveredId;
 
-                                  return (
-                                    <div
-                                      key={note.id}
-                                      data-note-id={note.id}
-                                      tabIndex={0}
-                                      data-multi-selected={
-                                        selectedNoteIds.has(note.id) ? "true" : undefined
-                                      }
-                                      aria-current={isSelected ? "true" : undefined}
-                                      onPointerDown={(event) => {
-                                        if (
-                                          event.ctrlKey ||
-                                          event.metaKey ||
-                                          event.shiftKey ||
-                                          heldSelectionKeys.current.ctrl ||
-                                          heldSelectionKeys.current.shift
-                                        ) {
-                                          event.preventDefault();
-                                          handleNoteSelection(event, note.id);
-                                          modifierPointerSelection.current = true;
-                                          return;
-                                        }
-                                        modifierPointerSelection.current = false;
-                                        beginNoteDrag(event, note.id, getDisplayTitle(note, t));
-                                      }}
-                                      onClick={(event) => {
-                                        if (modifierPointerSelection.current) {
-                                          modifierPointerSelection.current = false;
-                                          return;
-                                        }
+                                return (
+                                  <div
+                                    key={note.id}
+                                    data-note-id={note.id}
+                                    tabIndex={0}
+                                    data-multi-selected={
+                                      selectedNoteIds.has(note.id) ? "true" : undefined
+                                    }
+                                    aria-current={isSelected ? "true" : undefined}
+                                    onPointerDown={(event) => {
+                                      if (
+                                        event.ctrlKey ||
+                                        event.metaKey ||
+                                        event.shiftKey ||
+                                        heldSelectionKeys.current.ctrl ||
+                                        heldSelectionKeys.current.shift
+                                      ) {
+                                        event.preventDefault();
                                         handleNoteSelection(event, note.id);
-                                      }}
-                                      onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
-                                      onMouseEnter={() => setHoveredId(note.id)}
-                                      onMouseLeave={() => setHoveredId(null)}
-                                      className={`w-full text-left rounded-lg mx-1 px-2.5 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
-                                        isSelected
-                                          ? "bg-bamboo-mist/70"
-                                          : isHovered
-                                            ? "bg-paper-warm/70"
-                                            : "bg-transparent"
+                                        modifierPointerSelection.current = true;
+                                        return;
+                                      }
+                                      modifierPointerSelection.current = false;
+                                      beginNoteDrag(event, note.id, getDisplayTitle(note, t));
+                                    }}
+                                    onClick={(event) => {
+                                      if (modifierPointerSelection.current) {
+                                        modifierPointerSelection.current = false;
+                                        return;
+                                      }
+                                      handleNoteSelection(event, note.id);
+                                    }}
+                                    onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
+                                    onMouseEnter={() => setHoveredId(note.id)}
+                                    onMouseLeave={() => setHoveredId(null)}
+                                    className={`w-full text-left rounded px-1.5 py-1.5 cursor-pointer group relative ${
+                                      isSelected
+                                        ? "bg-bamboo-mist/70"
+                                        : isHovered
+                                          ? "bg-paper-warm/70"
+                                          : "bg-transparent"
+                                    }`}
+                                    style={{ width: "100%" }}
+                                  >
+                                    <div
+                                      className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
+                                        isSelected ? "h-5 opacity-100" : "h-0 opacity-0"
                                       }`}
-                                      style={{ width: "calc(100% - 8px)" }}
-                                    >
-                                      <div
-                                        className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
-                                          isSelected ? "h-5 opacity-100" : "h-0 opacity-0"
-                                        }`}
-                                      />
+                                    />
 
-                                      <div className="flex items-center justify-between min-w-0">
-                                        <span
-                                          className={`min-w-0 text-[11px] font-display font-medium truncate pr-2 transition-colors ${
-                                            isSelected ? "text-bamboo" : "text-ink-soft"
-                                          }`}
-                                        >
-                                          {getDisplayTitle(note, t)}
-                                        </span>
-                                        <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">
-                                          {formatShortDate(note.updatedAt)}
-                                        </span>
-                                      </div>
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <FileText
+                                        size={13}
+                                        className="shrink-0 text-ink-ghost"
+                                        aria-hidden="true"
+                                      />
+                                      <span
+                                        className={`flex-1 min-w-0 text-[11px] font-display font-medium truncate pr-2 transition-colors ${
+                                          isSelected ? "text-bamboo" : "text-ink-soft"
+                                        }`}
+                                      >
+                                        {getDisplayTitle(note, t)}
+                                      </span>
+                                      <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">
+                                        {formatShortDate(note.updatedAt)}
+                                      </span>
                                     </div>
-                                  );
-                                })
-                              )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
