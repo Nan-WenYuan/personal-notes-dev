@@ -94,6 +94,10 @@ import {
   formatTime,
   getDisplayTitle,
   groupNotesByCategory,
+  categoryParent,
+  categoryLabel,
+  categoryTreeGroups,
+  categoryAncestors,
   metadataFromNote,
 } from "../features/notes/noteUtils";
 import type { CategoryGroup } from "../features/notes/noteUtils";
@@ -621,9 +625,10 @@ export function MainWindow({
   useEffect(() => {
     if (selectedCategory) {
       setCollapsedCategories((current) => {
-        if (!current.has(selectedCategory)) return current;
+        const paths = [selectedCategory, ...categoryAncestors(selectedCategory)];
+        if (!paths.some((path) => current.has(path))) return current;
         const next = new Set(current);
-        next.delete(selectedCategory);
+        for (const path of paths) next.delete(path);
         return next;
       });
     }
@@ -710,18 +715,20 @@ export function MainWindow({
 
   const categoryGroups = useMemo(
     () =>
-      groupNotesByCategory(filteredNotes, [
-        "Agent知识库",
-        "便签",
-        "",
-        ...categories.filter((category) => !["Agent知识库", "便签", ""].includes(category)),
-      ]).sort((a, b) => {
-        const rank = (category: string) => {
-          const index = ["Agent知识库", "便签", ""].indexOf(category);
-          return index < 0 ? 3 : index;
-        };
-        return rank(a.category) - rank(b.category);
-      }),
+      categoryTreeGroups(
+        groupNotesByCategory(filteredNotes, [
+          "Agent知识库",
+          "便签",
+          "",
+          ...categories.filter((category) => !["Agent知识库", "便签", ""].includes(category)),
+        ]).sort((a, b) => {
+          const rank = (category: string) => {
+            const index = ["Agent知识库", "便签", ""].indexOf(category);
+            return index < 0 ? 3 : index;
+          };
+          return rank(a.category) - rank(b.category);
+        }),
+      ),
     [filteredNotes, categories],
   );
 
@@ -796,6 +803,7 @@ export function MainWindow({
       setCollapsedCategories((current) => {
         const next = new Set(current);
         next.delete(payload.category);
+        for (const ancestor of categoryAncestors(payload.category)) next.delete(ancestor);
         return next;
       });
       void refreshNotes().catch((error) => showToast(getErrorMessage(error)));
@@ -1562,6 +1570,7 @@ export function MainWindow({
       setCollapsedCategories((current) => {
         const next = new Set(current);
         next.delete(category);
+        for (const ancestor of categoryAncestors(category)) next.delete(ancestor);
         return next;
       });
       setHoveredId(null);
@@ -2068,7 +2077,7 @@ export function MainWindow({
         (target !== null && ["Agent知识库", "便签", ""].includes(target))
       )
         return;
-      if (!target || source === target) return;
+      if (!target || source === target || categoryParent(source) !== categoryParent(target)) return;
       const element = document.querySelector<HTMLElement>(
         `[data-note-drop-category="${CSS.escape(target)}"] > .group\\/cat`,
       );
@@ -2118,17 +2127,23 @@ export function MainWindow({
     },
   );
 
-  const handleCreateCategory = async () => {
+  const handleCreateCategory = async (parent = "") => {
     if (creatingCategory) return;
     setCreatingCategory(true);
-    let name = "新建分类";
+    const prefix = parent ? `${parent}/` : "";
+    let name = `${prefix}新建分类`;
     let suffix = 2;
-    while (categories.includes(name)) name = `新建分类 ${suffix++}`;
+    while (categories.includes(name)) name = `${prefix}新建分类 ${suffix++}`;
     try {
       await createCategory(name);
       await refreshNotes();
+      setCollapsedCategories((current) => {
+        const next = new Set(current);
+        for (const ancestor of [...categoryAncestors(name), name]) next.delete(ancestor);
+        return next;
+      });
       setRenamingCategory(name);
-      setRenameCategoryValue(name);
+      setRenameCategoryValue(categoryLabel(name));
     } catch (error) {
       showToast(getErrorMessage(error));
     } finally {
@@ -2137,14 +2152,30 @@ export function MainWindow({
   };
 
   const handleRenameCategory = async (oldName: string) => {
-    const newName = renameCategoryValue.trim();
-    if (!newName || newName === oldName) {
+    const label = renameCategoryValue.trim();
+    if (label.includes("/") || label.includes("\\")) {
+      showToast("分类名不能包含斜杠");
+      return;
+    }
+    const parent = categoryParent(oldName);
+    const newName = parent ? `${parent}/${label}` : label;
+    if (!label || newName === oldName) {
       setRenamingCategory(null);
       return;
     }
 
     try {
       await renameCategory(oldName, newName);
+      const remap = (path: string) =>
+        path === oldName || path.startsWith(`${oldName}/`)
+          ? newName + path.slice(oldName.length)
+          : path;
+      setActiveCategory((current) => remap(current));
+      setCollapsedCategories((current) => new Set([...current].map(remap)));
+      if (selectedIdRef.current) {
+        const updated = await getNote(selectedIdRef.current);
+        replaceNoteMetadata(updated);
+      }
       await refreshNotes();
       setRenamingCategory(null);
       setRenameCategoryValue("");
@@ -2157,7 +2188,7 @@ export function MainWindow({
     try {
       await deleteCategory(name);
       await refreshNotes();
-      if (activeCategory === name) {
+      if (activeCategory === name || activeCategory.startsWith(`${name}/`)) {
         setActiveCategory("");
       }
     } catch (error) {
@@ -2170,6 +2201,7 @@ export function MainWindow({
       const next = new Set(prev);
       if (next.has(category)) {
         next.delete(category);
+        for (const ancestor of categoryAncestors(category)) next.delete(ancestor);
       } else {
         next.add(category);
       }
@@ -3109,136 +3141,88 @@ export function MainWindow({
                     </>
                   )}
 
-                  {categoryGroups.map((group: CategoryGroup) => {
-                    const isCollapsed = collapsedCategories.has(group.category);
+                  {categoryGroups
+                    .filter(
+                      (group) =>
+                        searchQuery ||
+                        !categoryAncestors(group.category).some((parent) =>
+                          collapsedCategories.has(parent),
+                        ),
+                    )
+                    .map((group: CategoryGroup) => {
+                      const isCollapsed = !searchQuery && collapsedCategories.has(group.category);
+                      const hasChildren = categoryGroups.some(
+                        (item) =>
+                          categoryParent(item.category) === group.category &&
+                          item.category.includes("/"),
+                      );
+                      const noteCount = categoryGroups.reduce(
+                        (count, item) =>
+                          count +
+                          (item.category === group.category ||
+                          (group.category && item.category.startsWith(`${group.category}/`))
+                            ? item.notes.length
+                            : 0),
+                        0,
+                      );
 
-                    return (
-                      <div
-                        key={group.category || "__uncategorized__"}
-                        data-note-drop-category={group.category}
-                        data-default-category-boundary={
-                          group.category === "" &&
-                          categoryGroups.some(
-                            (item) => !["Agent知识库", "便签", ""].includes(item.category),
-                          )
-                            ? "true"
-                            : undefined
-                        }
-                        className={`relative px-2 mb-0.5 ${draggingCategory?.id === group.category ? "opacity-40" : ""} ${categorySortTarget === group.category && !["Agent知识库", "便签", ""].includes(group.category) && draggingCategory?.id !== group.category ? `category-sort-target ${categorySortAfter ? "category-sort-after" : ""}` : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
-                      >
+                      return (
                         <div
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
-                            dragOverCategory === group.category
-                              ? "bg-bamboo/15 border border-bamboo/40 ring-1 ring-bamboo/20"
-                              : isCollapsed
-                                ? "bg-transparent border border-bamboo/15"
-                                : "bg-bamboo/8 border border-bamboo/15 rounded-b-none"
-                          }`}
-                          onClick={() => {
-                            if (consumeCategoryClick()) return;
-                            setSelectedNoteIds(new Set());
-                            selectionAnchor.current = null;
-                            setActiveCategory(group.category);
-                            toggleCategoryCollapse(group.category);
-                          }}
-                          onPointerDown={(event) => {
-                            if ((event.target as HTMLElement).closest("input,button")) return;
-                            if (!["Agent知识库", "便签", ""].includes(group.category))
-                              beginCategoryDrag(event, group.category, group.category);
-                          }}
-                          title="拖动调整分类顺序"
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setCategoryMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              category: group.category,
-                            });
-                            setCategoryMenuClosing(false);
-                            setCategoryMenuConfirmDelete(false);
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                            setDragOverCategory(group.category);
-                          }}
-                          onDragLeave={() => setDragOverCategory(null)}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            setDragOverCategory(null);
-                            const noteId = e.dataTransfer.getData("text/plain");
-                            if (noteId) void handleMoveNote(noteId, group.category);
-                          }}
+                          key={group.category || "__uncategorized__"}
+                          style={{ marginLeft: (group.category.split("/").length - 1) * 14 }}
+                          data-note-drop-category={group.category}
+                          data-default-category-boundary={
+                            group.category === "" &&
+                            categoryGroups.some(
+                              (item) => !["Agent知识库", "便签", ""].includes(item.category),
+                            )
+                              ? "true"
+                              : undefined
+                          }
+                          className={`relative px-2 mb-0.5 ${draggingCategory?.id === group.category ? "opacity-40" : ""} ${categorySortTarget === group.category && !["Agent知识库", "便签", ""].includes(group.category) && draggingCategory?.id !== group.category ? `category-sort-target ${categorySortAfter ? "category-sort-after" : ""}` : ""} ${group.category === "Agent知识库" ? "agent-knowledge-category" : ""}`}
                         >
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className={`text-bamboo/50 shrink-0 transition-transform duration-200 ${isCollapsed ? "" : "rotate-90"}`}
-                          >
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                          <span className="text-bamboo/50 shrink-0">
-                            {group.category === "Agent知识库" ? (
-                              <Bot size={13} strokeWidth={1.8} />
-                            ) : group.category === "便签" ? (
-                              <StickyNote size={13} strokeWidth={1.8} />
-                            ) : group.category === "" ? (
-                              <Inbox size={13} strokeWidth={1.8} />
-                            ) : (
-                              <Folder size={13} strokeWidth={1.8} />
-                            )}
-                          </span>
-                          {renamingCategory === group.category ? (
-                            <input
-                              type="text"
-                              autoFocus
-                              onFocus={(e) => e.currentTarget.select()}
-                              value={renameCategoryValue}
-                              onChange={(e) => setRenameCategoryValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                e.stopPropagation();
-                                if (e.key === "Enter") void handleRenameCategory(group.category);
-                                if (e.key === "Escape") setRenamingCategory(null);
-                              }}
-                              onBlur={() => void handleRenameCategory(group.category)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex-1 min-w-0 px-1 text-[10px] font-mono text-ink bg-paper-warm/80 border border-bamboo/30 rounded"
-                            />
-                          ) : (
-                            <span className="text-[11px] text-bamboo/70 font-medium truncate">
-                              {group.category ||
-                                t("main.category.uncategorized", { defaultValue: "未分类" })}
-                            </span>
-                          )}
-                          <span className="text-[9px] text-bamboo/40 font-mono ml-auto shrink-0">
-                            {group.notes.length}
-                          </span>
-                        </div>
-
-                        <div className={`category-body ${isCollapsed ? "" : "expanded"}`}>
                           <div
-                            className={`category-body-inner border border-t-0 rounded-b-lg pb-1 pt-1 transition-colors duration-200 ${
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
                               dragOverCategory === group.category
-                                ? "bg-bamboo/10 border-bamboo/40 ring-1 ring-bamboo/20"
-                                : "bg-bamboo/[0.03] border-bamboo/10"
+                                ? "bg-bamboo/15 border border-bamboo/40 ring-1 ring-bamboo/20"
+                                : isCollapsed
+                                  ? "bg-transparent border border-bamboo/15"
+                                  : "bg-bamboo/8 border border-bamboo/15 rounded-b-none"
                             }`}
+                            onClick={() => {
+                              if (consumeCategoryClick()) return;
+                              setSelectedNoteIds(new Set());
+                              selectionAnchor.current = null;
+                              setActiveCategory(group.category);
+                              toggleCategoryCollapse(group.category);
+                            }}
+                            onPointerDown={(event) => {
+                              if ((event.target as HTMLElement).closest("input,button")) return;
+                              if (!["Agent知识库", "便签", ""].includes(group.category))
+                                beginCategoryDrag(event, group.category, group.category);
+                            }}
+                            title={
+                              group.category
+                                ? `${group.category} · 右键新建子分类，拖动调整同层顺序`
+                                : "未分类"
+                            }
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setCategoryMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                category: group.category,
+                              });
+                              setCategoryMenuClosing(false);
+                              setCategoryMenuConfirmDelete(false);
+                            }}
                             onDragOver={(e) => {
                               e.preventDefault();
                               e.dataTransfer.dropEffect = "move";
                               setDragOverCategory(group.category);
                             }}
-                            onDragLeave={(e) => {
-                              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                                setDragOverCategory(null);
-                              }
-                            }}
+                            onDragLeave={() => setDragOverCategory(null)}
                             onDrop={(e) => {
                               e.preventDefault();
                               setDragOverCategory(null);
@@ -3246,86 +3230,163 @@ export function MainWindow({
                               if (noteId) void handleMoveNote(noteId, group.category);
                             }}
                           >
-                            {group.notes.length === 0 ? (
-                              <div className="px-3 py-3 text-center text-[11px] text-ink-ghost/50">
-                                {t("main.category.emptyFolder", { defaultValue: "空文件夹" })}
-                              </div>
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className={`text-bamboo/50 shrink-0 transition-transform duration-200 ${isCollapsed ? "" : "rotate-90"}`}
+                            >
+                              <polyline points="9 18 15 12 9 6" />
+                            </svg>
+                            <span className="text-bamboo/50 shrink-0">
+                              {group.category === "Agent知识库" ? (
+                                <Bot size={13} strokeWidth={1.8} />
+                              ) : group.category === "便签" ? (
+                                <StickyNote size={13} strokeWidth={1.8} />
+                              ) : group.category === "" ? (
+                                <Inbox size={13} strokeWidth={1.8} />
+                              ) : (
+                                <Folder size={13} strokeWidth={1.8} />
+                              )}
+                            </span>
+                            {renamingCategory === group.category ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                onFocus={(e) => e.currentTarget.select()}
+                                value={renameCategoryValue}
+                                onChange={(e) => setRenameCategoryValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                  if (e.key === "Enter") void handleRenameCategory(group.category);
+                                  if (e.key === "Escape") setRenamingCategory(null);
+                                }}
+                                onBlur={() => void handleRenameCategory(group.category)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex-1 min-w-0 px-1 text-[10px] font-mono text-ink bg-paper-warm/80 border border-bamboo/30 rounded"
+                              />
                             ) : (
-                              group.notes.map((note) => {
-                                const isSelected = note.id === selectedId;
-                                const isHovered = note.id === hoveredId;
-
-                                return (
-                                  <div
-                                    key={note.id}
-                                    data-note-id={note.id}
-                                    tabIndex={0}
-                                    data-multi-selected={
-                                      selectedNoteIds.has(note.id) ? "true" : undefined
-                                    }
-                                    aria-current={isSelected ? "true" : undefined}
-                                    onPointerDown={(event) => {
-                                      if (
-                                        event.ctrlKey ||
-                                        event.metaKey ||
-                                        event.shiftKey ||
-                                        heldSelectionKeys.current.ctrl ||
-                                        heldSelectionKeys.current.shift
-                                      ) {
-                                        event.preventDefault();
-                                        handleNoteSelection(event, note.id);
-                                        modifierPointerSelection.current = true;
-                                        return;
-                                      }
-                                      modifierPointerSelection.current = false;
-                                      beginNoteDrag(event, note.id, getDisplayTitle(note, t));
-                                    }}
-                                    onClick={(event) => {
-                                      if (modifierPointerSelection.current) {
-                                        modifierPointerSelection.current = false;
-                                        return;
-                                      }
-                                      handleNoteSelection(event, note.id);
-                                    }}
-                                    onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
-                                    onMouseEnter={() => setHoveredId(note.id)}
-                                    onMouseLeave={() => setHoveredId(null)}
-                                    className={`w-full text-left rounded-lg mx-1 px-2.5 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
-                                      isSelected
-                                        ? "bg-bamboo-mist/70"
-                                        : isHovered
-                                          ? "bg-paper-warm/70"
-                                          : "bg-transparent"
-                                    }`}
-                                    style={{ width: "calc(100% - 8px)" }}
-                                  >
-                                    <div
-                                      className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
-                                        isSelected ? "h-5 opacity-100" : "h-0 opacity-0"
-                                      }`}
-                                    />
-
-                                    <div className="flex items-center justify-between min-w-0">
-                                      <span
-                                        className={`min-w-0 text-[11px] font-display font-medium truncate pr-2 transition-colors ${
-                                          isSelected ? "text-bamboo" : "text-ink-soft"
-                                        }`}
-                                      >
-                                        {getDisplayTitle(note, t)}
-                                      </span>
-                                      <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">
-                                        {formatShortDate(note.updatedAt)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              })
+                              <span className="text-[11px] text-bamboo/70 font-medium truncate">
+                                {categoryLabel(group.category) ||
+                                  t("main.category.uncategorized", { defaultValue: "未分类" })}
+                              </span>
                             )}
+                            <span className="text-[9px] text-bamboo/40 font-mono ml-auto shrink-0">
+                              {noteCount}
+                            </span>
+                          </div>
+
+                          <div
+                            className={`category-body ${isCollapsed || (hasChildren && !group.notes.length) ? "" : "expanded"}`}
+                          >
+                            <div
+                              className={`category-body-inner border border-t-0 rounded-b-lg pb-1 pt-1 transition-colors duration-200 ${
+                                dragOverCategory === group.category
+                                  ? "bg-bamboo/10 border-bamboo/40 ring-1 ring-bamboo/20"
+                                  : "bg-bamboo/[0.03] border-bamboo/10"
+                              }`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "move";
+                                setDragOverCategory(group.category);
+                              }}
+                              onDragLeave={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                  setDragOverCategory(null);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                setDragOverCategory(null);
+                                const noteId = e.dataTransfer.getData("text/plain");
+                                if (noteId) void handleMoveNote(noteId, group.category);
+                              }}
+                            >
+                              {group.notes.length === 0 ? (
+                                <div className="px-3 py-3 text-center text-[11px] text-ink-ghost/50">
+                                  {t("main.category.emptyFolder", { defaultValue: "空文件夹" })}
+                                </div>
+                              ) : (
+                                group.notes.map((note) => {
+                                  const isSelected = note.id === selectedId;
+                                  const isHovered = note.id === hoveredId;
+
+                                  return (
+                                    <div
+                                      key={note.id}
+                                      data-note-id={note.id}
+                                      tabIndex={0}
+                                      data-multi-selected={
+                                        selectedNoteIds.has(note.id) ? "true" : undefined
+                                      }
+                                      aria-current={isSelected ? "true" : undefined}
+                                      onPointerDown={(event) => {
+                                        if (
+                                          event.ctrlKey ||
+                                          event.metaKey ||
+                                          event.shiftKey ||
+                                          heldSelectionKeys.current.ctrl ||
+                                          heldSelectionKeys.current.shift
+                                        ) {
+                                          event.preventDefault();
+                                          handleNoteSelection(event, note.id);
+                                          modifierPointerSelection.current = true;
+                                          return;
+                                        }
+                                        modifierPointerSelection.current = false;
+                                        beginNoteDrag(event, note.id, getDisplayTitle(note, t));
+                                      }}
+                                      onClick={(event) => {
+                                        if (modifierPointerSelection.current) {
+                                          modifierPointerSelection.current = false;
+                                          return;
+                                        }
+                                        handleNoteSelection(event, note.id);
+                                      }}
+                                      onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
+                                      onMouseEnter={() => setHoveredId(note.id)}
+                                      onMouseLeave={() => setHoveredId(null)}
+                                      className={`w-full text-left rounded-lg mx-1 px-2.5 py-2 transition-all duration-[600ms] cursor-pointer group relative ${
+                                        isSelected
+                                          ? "bg-bamboo-mist/70"
+                                          : isHovered
+                                            ? "bg-paper-warm/70"
+                                            : "bg-transparent"
+                                      }`}
+                                      style={{ width: "calc(100% - 8px)" }}
+                                    >
+                                      <div
+                                        className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
+                                          isSelected ? "h-5 opacity-100" : "h-0 opacity-0"
+                                        }`}
+                                      />
+
+                                      <div className="flex items-center justify-between min-w-0">
+                                        <span
+                                          className={`min-w-0 text-[11px] font-display font-medium truncate pr-2 transition-colors ${
+                                            isSelected ? "text-bamboo" : "text-ink-soft"
+                                          }`}
+                                        >
+                                          {getDisplayTitle(note, t)}
+                                        </span>
+                                        <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">
+                                          {formatShortDate(note.updatedAt)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
 
                   {!isLoading && filteredNotes.length === 0 && externalFiles.length === 0 && (
                     <div className="px-3 py-8 text-center text-[12px] text-ink-ghost leading-relaxed">
@@ -4093,6 +4154,18 @@ export function MainWindow({
                     {label}
                   </button>
                 ))}
+              {categoryMenu.category && (
+                <button
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setCategoryMenuClosing(true);
+                    void handleCreateCategory(categoryMenu.category);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                >
+                  新建子分类
+                </button>
+              )}
               {categoryMenu.category &&
                 !["Agent知识库", "便签"].includes(categoryMenu.category) && (
                   <>
@@ -4101,7 +4174,7 @@ export function MainWindow({
                       onClick={() => {
                         setCategoryMenuClosing(true);
                         setRenamingCategory(categoryMenu.category);
-                        setRenameCategoryValue(categoryMenu.category);
+                        setRenameCategoryValue(categoryLabel(categoryMenu.category));
                       }}
                       className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
                     >

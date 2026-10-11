@@ -5,6 +5,9 @@ import {
   filterNotes,
   getDisplayTitle,
   groupNotesByCategory,
+  categoryTreeGroups,
+  categoryAncestors,
+  categoryLabel,
 } from "./noteUtils";
 import type { NoteMetadata } from "./types";
 
@@ -32,6 +35,25 @@ const notes: NoteMetadata[] = [
 ];
 
 describe("note utilities", () => {
+  it("builds nested categories in sibling order and includes missing ancestors", () => {
+    const groups = categoryTreeGroups(
+      groupNotesByCategory([], ["工作", "生活", "工作/账号", "工作/资料", "工作/账号/工具"]),
+    );
+    expect(groups.map((group) => group.category)).toEqual([
+      "工作",
+      "工作/账号",
+      "工作/账号/工具",
+      "工作/资料",
+      "生活",
+    ]);
+    expect(categoryAncestors("工作/账号/工具")).toEqual(["工作/账号", "工作"]);
+    expect(categoryLabel("工作/账号")).toBe("账号");
+    expect(
+      categoryTreeGroups(groupNotesByCategory([{ ...notes[0], category: "A/B" }])).map(
+        (group) => group.category,
+      ),
+    ).toEqual(["A", "A/B"]);
+  });
   it("keeps category order stable when folders gain notes or search results change", () => {
     const categories = ["B", "Agent知识库", "A"];
     const emptyOrder = groupNotesByCategory([], categories).map((group) => group.category);

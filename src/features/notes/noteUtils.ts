@@ -42,6 +42,49 @@ export interface CategoryGroup {
   latestUpdatedAt: string;
 }
 
+export function categoryParent(category: string): string {
+  const slash = category.lastIndexOf("/");
+  return slash < 0 ? "" : category.slice(0, slash);
+}
+
+export function categoryLabel(category: string): string {
+  return category.slice(category.lastIndexOf("/") + 1);
+}
+
+// Preserve sibling order while placing every child immediately below its parent.
+export function categoryTreeGroups(groups: CategoryGroup[]): CategoryGroup[] {
+  const byPath = new Map(groups.map((group) => [group.category, group]));
+  for (const group of groups) {
+    let parent = categoryParent(group.category);
+    while (parent) {
+      if (!byPath.has(parent))
+        byPath.set(parent, { category: parent, notes: [], latestUpdatedAt: "" });
+      parent = categoryParent(parent);
+    }
+  }
+  const result: CategoryGroup[] = [];
+  const visit = (group: CategoryGroup) => {
+    result.push(group);
+    if (!group.category) return;
+    for (const child of byPath.values()) {
+      if (child.category.includes("/") && categoryParent(child.category) === group.category)
+        visit(child);
+    }
+  };
+  for (const group of byPath.values()) if (!group.category.includes("/")) visit(group);
+  return result;
+}
+
+export function categoryAncestors(category: string): string[] {
+  const ancestors: string[] = [];
+  let parent = categoryParent(category);
+  while (parent) {
+    ancestors.push(parent);
+    parent = categoryParent(parent);
+  }
+  return ancestors;
+}
+
 export function groupNotesByCategory(
   notes: NoteMetadata[],
   allCategories: string[] = [],
