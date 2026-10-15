@@ -1,0 +1,183 @@
+.pomodoro-desktop-frame {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+}
+.pomodoro-desktop-surface {
+  --desktop-accent: #cf7c6b;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--desktop-accent) 34%, var(--color-paper));
+  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-cloud) 50%, var(--color-paper)) 96%,
+    var(--desktop-accent)
+  );
+  box-shadow: 0 2px 5px var(--color-shadow);
+  color: var(--color-ink);
+}
+:root[data-theme="dark"] .pomodoro-desktop-surface {
+  --desktop-accent: #dc9684;
+}
+.pomodoro-desktop-surface.is-rest {
+  --desktop-accent: var(--color-bamboo-light);
+}
+.pomodoro-desktop-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 39px;
+  padding: 8px 12px 7px;
+  cursor: grab;
+}
+.pomodoro-desktop-tomato {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.pomodoro-desktop-task,
+.pomodoro-desktop-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pomodoro-desktop-status {
+  color: var(--desktop-accent);
+}
+.pomodoro-desktop-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 25px;
+  height: 25px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: var(--color-ink-faint);
+  background: transparent;
+  cursor: pointer;
+}
+.pomodoro-desktop-icon:hover {
+  background: var(--color-paper-warm);
+  color: var(--color-ink);
+}
+.pomodoro-desktop-icon:focus-visible,
+.pomodoro-desktop-open:focus-visible {
+  outline: 2px solid var(--color-bamboo);
+  outline-offset: 1px;
+}
+.pomodoro-desktop-progress-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  gap: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--desktop-accent) 12%, var(--color-paper));
+  padding: 4px 14px 6px;
+  cursor: grab;
+}
+.pomodoro-desktop-clock {
+  flex: none;
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+}
+.pomodoro-desktop-track {
+  overflow: hidden;
+  flex: 1;
+  min-width: 24px;
+  height: 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--desktop-accent) 20%, var(--color-paper));
+}
+.pomodoro-desktop-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--desktop-accent);
+  transition: width 0.25s linear;
+}
+.pomodoro-desktop-paused {
+  color: var(--color-ink-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.pomodoro-desktop-completion {
+  padding: 4px 16px 12px;
+  flex: 1;
+  min-height: 0;
+}
+.pomodoro-desktop-completion h1 {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.4;
+  margin: 0 0 5px;
+}
+.pomodoro-desktop-completion p {
+  color: var(--color-ink-faint);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+.pomodoro-desktop-footer {
+  margin: 0 16px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--desktop-accent) 18%, var(--color-paper));
+  min-height: 51px;
+}
+.pomodoro-desktop-open {
+  border: 1px solid var(--color-bamboo);
+  color: var(--color-bamboo);
+  background: transparent;
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pomodoro-desktop-open:hover {
+  background: var(--color-bamboo-mist);
+}
+.pomodoro-desktop-feedback {
+  flex: 1;
+  font-size: 10px;
+  color: var(--color-ink-faint);
+  line-height: 1.4;
+}
+.pomodoro-desktop-running-error {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  font-size: 10px;
+  color: var(--color-ink-faint);
+}
+.pomodoro-desktop-loading {
+  padding: 10px 14px;
+  color: var(--color-ink-faint);
+  font-size: 13px;
+}
+.pomodoro-desktop-surface button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomodoro-desktop-fill {
+    transition: none;
+  }
+}

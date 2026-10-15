@@ -340,7 +340,7 @@ fn data_dir_from_notes_dir(notes_dir: &str) -> PathBuf {
     path.to_path_buf()
 }
 
-const DATA_DIR_ITEMS: [&str; 8] = [
+const DATA_DIR_ITEMS: [&str; 11] = [
     "metadata.json",
     "notes",
     "images",
@@ -349,6 +349,9 @@ const DATA_DIR_ITEMS: [&str; 8] = [
     "番茄钟.json",
     ".agent-knowledge-initialized",
     "分类排序.json",
+    "项目.json",
+    "书籍",
+    "回收站",
 ];
 
 // 旧版无论 notesDir 指向哪里，metadata.json、images、backgrounds 都固定存放在旧主目录；
@@ -978,6 +981,7 @@ impl NoteStore {
     }
 
     pub fn delete_note(&self, id: &str) -> Result<(), AppError> {
+        let _guard = crate::recycle_bin::lock();
         self.ensure_storage()?;
         let mut metadata_file = self.load_metadata()?;
         let index = metadata_file
@@ -988,14 +992,44 @@ impl NoteStore {
         let image_dir = self.images_dir(id);
         let metadata = metadata_file.notes.remove(index);
         let path = self.note_path_in_category(&metadata.file_name, &metadata.category);
-        if path.exists() {
-            recycle_path(&path)?;
-        }
-        self.save_metadata(&metadata_file)?;
-        if image_dir.exists() {
-            recycle_path(&image_dir)?;
+        let origin = if metadata.category.is_empty() {
+            "未分类".into()
+        } else {
+            metadata.category.clone()
+        };
+        crate::recycle_bin::archive_files(
+            &self.data_dir,
+            "note",
+            metadata.title.clone(),
+            origin,
+            vec![path, image_dir],
+            vec![metadata],
+            || self.save_metadata(&metadata_file),
+        )
+    }
+
+    pub(crate) fn check_restore_notes(&self, notes: &[NoteMetadata]) -> Result<(), AppError> {
+        let metadata = self.load_metadata()?;
+        if notes
+            .iter()
+            .any(|n| metadata.notes.iter().any(|old| old.id == n.id))
+        {
+            return Err(AppError::new(
+                "restoreConflict",
+                "同一笔记已经存在，未覆盖现有内容",
+            ));
         }
         Ok(())
+    }
+
+    pub(crate) fn restore_note_metadata(&self, notes: &[NoteMetadata]) -> Result<(), AppError> {
+        let mut metadata = self.load_metadata()?;
+        for note in notes {
+            if !metadata.notes.iter().any(|old| old.id == note.id) {
+                metadata.notes.push(note.clone());
+            }
+        }
+        self.save_metadata(&metadata)
     }
 
     pub fn images_dir(&self, note_id: &str) -> PathBuf {
@@ -1067,34 +1101,36 @@ impl NoteStore {
         note_id: &str,
         content: &str,
     ) -> Result<Vec<String>, AppError> {
+        let _guard = crate::recycle_bin::lock();
         let dir = self.images_dir(note_id);
         if !dir.exists() {
             return Ok(Vec::new());
         }
-
+        let note = self.find_metadata(note_id)?;
         let mut removed = Vec::new();
-        let mut remaining = 0usize;
+        let mut paths = Vec::new();
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
-            let path = entry.path();
-            if !path.is_file() {
+            if !entry.path().is_file() {
                 continue;
             }
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            let note = self.find_metadata(note_id)?;
-            let relative = format!("{}{file_name}", Self::image_prefix(&note.file_name));
-            if !content.contains(&relative) {
-                fs::remove_file(&path)?;
-                removed.push(file_name);
-            } else {
-                remaining += 1;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !content.contains(&format!("{}{name}", Self::image_prefix(&note.file_name))) {
+                removed.push(name);
+                paths.push(entry.path());
             }
         }
-
-        if remaining == 0 {
-            let _ = fs::remove_dir(&dir);
+        if !paths.is_empty() {
+            crate::recycle_bin::archive_files(
+                &self.data_dir,
+                "attachment",
+                format!("{} 的 {} 张图片", note.title, paths.len()),
+                note.category,
+                paths,
+                vec![],
+                || Ok(()),
+            )?;
         }
-
         Ok(removed)
     }
 
@@ -1223,6 +1259,7 @@ impl NoteStore {
     }
 
     pub fn delete_category(&self, name: &str) -> Result<(), AppError> {
+        let _guard = crate::recycle_bin::lock();
         if ["", "Agent知识库", "便签"].contains(&name) {
             return Err(AppError::new(
                 "defaultCategoryProtected",
@@ -1230,61 +1267,27 @@ impl NoteStore {
             ));
         }
         self.ensure_storage()?;
-        let notes_dir = self.notes_dir();
-        let category_path = notes_dir.join(name);
-        let dir_exists = category_path.exists();
-
-        if dir_exists {
-            // Safety: ensure the category path is actually inside notes_dir
-            let canon_notes = fs::canonicalize(&notes_dir).unwrap_or_else(|_| notes_dir.clone());
-            let canon_cat =
-                fs::canonicalize(&category_path).unwrap_or_else(|_| category_path.clone());
-            if !canon_cat.starts_with(&canon_notes) || canon_cat == canon_notes {
-                return Err(AppError::new(
-                    "unsafePath",
-                    format!(
-                        "拒绝删除「{}」：路径不在数据目录内",
-                        category_path.display()
-                    ),
-                ));
-            }
-
-            // Move all notes in this category to uncategorized (root)
-            let mut metadata_file = self.load_metadata()?;
-            for note in &mut metadata_file.notes {
-                if note.category == name {
-                    let old_path = category_path.join(&note.file_name);
-                    let new_path = notes_dir.join(&note.file_name);
-                    if old_path.exists() {
-                        fs::rename(&old_path, &new_path)?;
-                    }
-                    let images = old_path.with_extension("");
-                    if images.exists() {
-                        move_or_copy_dir(&images, &new_path.with_extension(""))?;
-                    }
-                    note.category = String::new();
-                }
-            }
-            self.save_metadata(&metadata_file)?;
-
-            // Move to recycle bin instead of permanent deletion.
-            recycle_path(&category_path)?;
-        } else {
-            // Directory already gone (manually deleted outside the app);
-            // clean up any stale metadata references.
-            let mut metadata_file = self.load_metadata()?;
-            let mut changed = false;
-            for note in &mut metadata_file.notes {
-                if note.category == name {
-                    note.category = String::new();
-                    changed = true;
-                }
-            }
-            if changed {
-                self.save_metadata(&metadata_file)?;
-            }
-        }
-        Ok(())
+        let category_path = self.notes_dir().join(name);
+        let mut metadata = self.load_metadata()?;
+        let prefix = format!("{name}/");
+        let removed: Vec<_> = metadata
+            .notes
+            .iter()
+            .filter(|note| note.category == name || note.category.starts_with(&prefix))
+            .cloned()
+            .collect();
+        metadata
+            .notes
+            .retain(|note| !removed.iter().any(|n| n.id == note.id));
+        crate::recycle_bin::archive_files(
+            &self.data_dir,
+            "category",
+            name.into(),
+            "笔记分类".into(),
+            vec![category_path],
+            removed,
+            || self.save_metadata(&metadata),
+        )
     }
 
     pub fn move_note_to_category(
@@ -2433,6 +2436,70 @@ mod tests {
     }
 
     #[test]
+    fn recycle_bin_restores_original_note_images_and_identity() {
+        let store = test_store("owned-trash-note");
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "中文 笔记".into(),
+                content: "原文\r\n正文".into(),
+                category: "资料".into(),
+            })
+            .unwrap();
+        let image = store
+            .save_image(&note.id, b"original-image-bytes", "png")
+            .unwrap();
+        let image_path = store
+            .images_dir(&note.id)
+            .join(image.rsplit('/').next().unwrap());
+        let path = store.note_path_in_category(&note.file_name, &note.category);
+        let bytes = fs::read(&path).unwrap();
+        store.delete_note(&note.id).unwrap();
+        assert!(!path.exists());
+        assert!(!image_path.exists());
+        let entries = crate::recycle_bin::list(store.data_dir()).unwrap();
+        assert_eq!(entries.len(), 1);
+        let reopened = NoteStore::new(store.config_dir.clone(), store.data_dir.clone());
+        crate::recycle_bin::restore(&reopened, &entries[0].id).unwrap();
+        assert_eq!(reopened.read_note(&note.id).unwrap(), note);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read(image_path).unwrap(), b"original-image-bytes");
+        assert!(crate::recycle_bin::list(store.data_dir())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn recycle_bin_category_is_whole_and_collision_never_overwrites() {
+        let store = test_store("owned-trash-category");
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "需求".into(),
+                content: "完整原文".into(),
+                category: "项目资料".into(),
+            })
+            .unwrap();
+        let category = store.notes_dir().join("项目资料");
+        fs::write(category.join("其他资料.txt"), b"unchanged").unwrap();
+        store.delete_category("项目资料").unwrap();
+        assert!(!category.exists());
+        assert!(store.read_note(&note.id).is_err());
+        let entries = crate::recycle_bin::list(store.data_dir()).unwrap();
+        fs::create_dir_all(&category).unwrap();
+        fs::write(category.join("新文件.txt"), b"new").unwrap();
+        assert!(crate::recycle_bin::restore(&store, &entries[0].id).is_err());
+        assert_eq!(fs::read(category.join("新文件.txt")).unwrap(), b"new");
+        assert_eq!(crate::recycle_bin::list(store.data_dir()).unwrap().len(), 1);
+        fs::remove_file(category.join("新文件.txt")).unwrap();
+        fs::remove_dir(&category).unwrap();
+        crate::recycle_bin::restore(&store, &entries[0].id).unwrap();
+        assert_eq!(store.read_note(&note.id).unwrap(), note);
+        assert_eq!(
+            fs::read(category.join("其他资料.txt")).unwrap(),
+            b"unchanged"
+        );
+    }
+
+    #[test]
     fn creates_updates_reads_and_deletes_markdown_notes() {
         let store = test_store("crud");
 
@@ -2957,6 +3024,131 @@ mod tests {
             config.data_dir.as_deref(),
             Some(data_dir.to_string_lossy().as_ref())
         );
+    }
+
+    // Recycle-bin paths are relative to the data root. Moving the complete tree
+    // must keep the original files, note identity and reader settings intact.
+    fn seed_books_and_recycle_bin(store: &NoteStore) -> (Note, String) {
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "已删除的资料".into(),
+                content: "迁移后恢复原正文".into(),
+                category: String::new(),
+            })
+            .unwrap();
+        store.delete_note(&note.id).unwrap();
+        let book_id = Uuid::new_v4().to_string();
+        let book_dir = store.data_dir.join("书籍").join(&book_id);
+        fs::create_dir_all(&book_dir).unwrap();
+        fs::write(book_dir.join("中文 书籍.txt"), b"original-book\r\nbytes").unwrap();
+        fs::write(
+            book_dir.join("book.json"),
+            br#"{"location":"chapter-2","progress":0.42,"readingMode":"scroll"}"#,
+        )
+        .unwrap();
+        crate::recycle_bin::archive_files(
+            &store.data_dir,
+            "book",
+            "中文书籍".into(),
+            "书籍".into(),
+            vec![book_dir],
+            vec![],
+            || Ok(()),
+        )
+        .unwrap();
+        fs::create_dir_all(store.data_dir.join("书籍/正在阅读")).unwrap();
+        fs::write(
+            store.data_dir.join("书籍/正在阅读/book.json"),
+            b"active-book",
+        )
+        .unwrap();
+        store.load_config().unwrap();
+        (note, book_id)
+    }
+
+    fn assert_migrated_books_and_recycle_bin(store: &NoteStore, note: &Note, book_id: &str) {
+        assert_eq!(
+            fs::read(store.data_dir.join("书籍/正在阅读/book.json")).unwrap(),
+            b"active-book"
+        );
+        let entries = crate::recycle_bin::list(&store.data_dir).unwrap();
+        assert_eq!(entries.len(), 2);
+        for entry in entries {
+            crate::recycle_bin::restore(store, &entry.id).unwrap();
+        }
+        let restored = store.list_notes().unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].id, note.id);
+        assert_eq!(restored[0].created_at, note.created_at);
+        assert_eq!(restored[0].updated_at, note.updated_at);
+        assert_eq!(
+            store.read_note(&note.id).unwrap().content,
+            "迁移后恢复原正文"
+        );
+        let book_dir = store.data_dir.join("书籍").join(book_id);
+        assert_eq!(
+            fs::read(book_dir.join("中文 书籍.txt")).unwrap(),
+            b"original-book\r\nbytes"
+        );
+        assert_eq!(
+            fs::read(book_dir.join("book.json")).unwrap(),
+            br#"{"location":"chapter-2","progress":0.42,"readingMode":"scroll"}"#
+        );
+        assert!(crate::recycle_bin::list(&store.data_dir)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn migrate_books_and_recycle_bin_restore_after_manual_move() {
+        let root = test_root("migrate-books-trash-manual");
+        let store = NoteStore::new(root.join("配置"), root.join("旧 数据"));
+        let (note, book_id) = seed_books_and_recycle_bin(&store);
+        let new_store = store.migrate_data_to(&root.join("新 数据")).unwrap();
+        assert!(!store.data_dir.join("书籍").exists());
+        assert!(!store.data_dir.join("回收站").exists());
+        assert_migrated_books_and_recycle_bin(&new_store, &note, &book_id);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migrate_books_and_recycle_bin_restore_after_automatic_relocation() {
+        let root = test_root("migrate-books-trash-auto");
+        let store = NoteStore::new(root.join("配置"), root.join("旧 数据"));
+        let (note, book_id) = seed_books_and_recycle_bin(&store);
+        let new_store = NoteStore::new(store.config_dir.clone(), root.join("新 数据"));
+        new_store.load_config().unwrap();
+        assert!(!store.data_dir.join("书籍").exists());
+        assert!(!store.data_dir.join("回收站").exists());
+        assert_migrated_books_and_recycle_bin(&new_store, &note, &book_id);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migrate_books_and_recycle_bin_copy_failure_preserves_source_and_retries() {
+        let root = test_root("migrate-books-trash-failure");
+        let store = NoteStore::new(root.join("配置"), root.join("旧 数据"));
+        let (note, book_id) = seed_books_and_recycle_bin(&store);
+        let config_before = fs::read(store.config_path()).unwrap();
+        let target = root.join("新 数据");
+        fs::create_dir_all(&target).unwrap();
+        // Fail late in the copy phase, after the active books have been copied.
+        fs::write(target.join("回收站"), b"destination-conflict").unwrap();
+        assert!(store.migrate_data_to(&target).is_err());
+        assert_eq!(fs::read(store.config_path()).unwrap(), config_before);
+        assert_eq!(crate::recycle_bin::list(&store.data_dir).unwrap().len(), 2);
+        assert_eq!(
+            fs::read(store.data_dir.join("书籍/正在阅读/book.json")).unwrap(),
+            b"active-book"
+        );
+        assert_eq!(
+            fs::read(target.join("回收站")).unwrap(),
+            b"destination-conflict"
+        );
+        fs::remove_file(target.join("回收站")).unwrap();
+        let new_store = store.migrate_data_to(&target).unwrap();
+        assert_migrated_books_and_recycle_bin(&new_store, &note, &book_id);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "macos")]

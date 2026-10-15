@@ -1,3 +1,4 @@
+import { useQuadrantDrag } from "./useQuadrantDrag";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Archive, ArrowLeft, RotateCcw, Trash2, Play, Pause, GripVertical } from "lucide-react";
@@ -46,9 +47,6 @@ export function QuadrantBoard({
   const [completedUndo, setCompletedUndo] = useState<Task | null>(null);
   const [moveMenu, setMoveMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const moveMenuRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ id: string; x: number; y: number; moved: boolean } | null>(null);
-  const [draggedTask, setDraggedTask] = useState<string | null>(null);
-  const [dropQuadrant, setDropQuadrant] = useState<number | null>(null);
   useEffect(() => {
     if (!moveMenu) return;
     const close = (event: PointerEvent) => {
@@ -118,6 +116,7 @@ export function QuadrantBoard({
         }
       });
   };
+  const taskDrag = useQuadrantDrag(tasks, save);
   const moveTask = (id: string, quadrant: number) => {
     save(current.current.map((task) => (task.id === id ? { ...task, quadrant } : task)));
     setMoveMenu(null);
@@ -127,6 +126,7 @@ export function QuadrantBoard({
       className="quadrant-board absolute inset-0 z-10 bg-paper flex flex-col"
       aria-label="四象限任务面板"
     >
+      {taskDrag.overlay}
       {moveMenu && (
         <div
           ref={moveMenuRef}
@@ -142,10 +142,12 @@ export function QuadrantBoard({
             <button
               key={index}
               role="menuitem"
-              className="block w-full text-left px-3 py-1.5 text-xs hover:bg-bamboo-mist rounded"
+              className="quadrant-move-option w-full text-left px-3 py-1.5 text-xs rounded"
+              style={{ "--quadrant-color": quadrant.color } as CSSProperties}
               disabled={tasks.find((task) => task.id === moveMenu.id)?.quadrant === index}
               onClick={() => moveTask(moveMenu.id, index)}
             >
+              <span className="quadrant-move-dot" aria-hidden="true" />
               移到{quadrant.title}
             </button>
           ))}
@@ -387,15 +389,24 @@ export function QuadrantBoard({
           ))}
         </div>
       ) : (
-        <div className="quadrant-grid flex-1 min-h-0 overflow-auto grid grid-cols-1 md:grid-cols-2 auto-rows-fr">
+        <div
+          ref={taskDrag.boardRef}
+          onPointerMove={taskDrag.move}
+          onPointerUp={() => void taskDrag.finish()}
+          onPointerCancel={taskDrag.cancel}
+          onLostPointerCapture={taskDrag.cancel}
+          className={`quadrant-grid flex-1 min-h-0 overflow-auto grid grid-cols-1 md:grid-cols-2 auto-rows-fr ${taskDrag.view ? "is-dragging" : ""}`}
+        >
           {quadrants.map((quadrant, index) => {
-            const list = tasks.filter((task) => task.quadrant === index && !task.completed);
+            const list = taskDrag.preview.filter(
+              (task) => task.quadrant === index && !task.completed,
+            );
             return (
               <section
                 key={index}
                 data-quadrant={index}
                 style={{ "--quadrant-color": quadrant.color } as CSSProperties}
-                className={`quadrant-card flex flex-col overflow-hidden ${dropQuadrant === index ? "is-drop-target" : ""}`}
+                className="quadrant-card flex flex-col overflow-hidden"
               >
                 <header
                   className="px-4 py-3 border-b border-paper-deep/30 flex items-center justify-between"
@@ -412,6 +423,15 @@ export function QuadrantBoard({
                 <div className="quadrant-tasks flex-1">
                   {!list.length && <p className="quadrant-empty">暂无任务</p>}
                   {list.map((task) => {
+                    if (taskDrag.view?.id === task.id)
+                      return (
+                        <div
+                          key={task.id}
+                          data-quadrant-placeholder
+                          className="quadrant-drag-placeholder"
+                          style={{ height: taskDrag.view.height }}
+                        />
+                      );
                     const sessionProgress = taskProgress(timer.state, timer.remaining, task.id);
                     const active = sessionProgress !== null;
                     const resting =
@@ -427,7 +447,8 @@ export function QuadrantBoard({
                     return (
                       <div
                         key={task.id}
-                        className={`quadrant-task-row group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15 ${active ? "is-focusing" : ""} ${draggedTask === task.id ? "opacity-40" : ""}`}
+                        data-quadrant-task={task.id}
+                        className={`quadrant-task-row group flex items-start gap-2 rounded-lg px-1 py-1.5 hover:bg-paper-deep/15 ${active ? "is-focusing" : ""}`}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -447,49 +468,8 @@ export function QuadrantBoard({
                         <button
                           className="quadrant-drag-handle"
                           aria-label={`拖动任务：${task.text}`}
-                          title="拖动到其他象限，也可右键移动"
-                          onPointerDown={(event) => {
-                            if (event.button !== 0) return;
-                            event.preventDefault();
-                            drag.current = {
-                              id: task.id,
-                              x: event.clientX,
-                              y: event.clientY,
-                              moved: false,
-                            };
-                            event.currentTarget.setPointerCapture(event.pointerId);
-                          }}
-                          onPointerMove={(event) => {
-                            const value = drag.current;
-                            if (!value) return;
-                            if (
-                              Math.hypot(event.clientX - value.x, event.clientY - value.y) < 6 &&
-                              !value.moved
-                            )
-                              return;
-                            value.moved = true;
-                            setDraggedTask(value.id);
-                            const target = document
-                              .elementFromPoint(event.clientX, event.clientY)
-                              ?.closest<HTMLElement>("[data-quadrant]");
-                            setDropQuadrant(target ? Number(target.dataset.quadrant) : null);
-                          }}
-                          onPointerUp={(event) => {
-                            const value = drag.current;
-                            const target = document
-                              .elementFromPoint(event.clientX, event.clientY)
-                              ?.closest<HTMLElement>("[data-quadrant]");
-                            if (value?.moved && target)
-                              moveTask(value.id, Number(target.dataset.quadrant));
-                            drag.current = null;
-                            setDraggedTask(null);
-                            setDropQuadrant(null);
-                          }}
-                          onPointerCancel={() => {
-                            drag.current = null;
-                            setDraggedTask(null);
-                            setDropQuadrant(null);
-                          }}
+                          title="拖动调整顺序或移到其他象限"
+                          onPointerDown={(event) => taskDrag.start(event, task.id)}
                         >
                           <GripVertical size={12} />
                         </button>

@@ -41,7 +41,7 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**", "**/网页缓存/**"],
+      ignored: ["**/src-tauri/**", "**/网页缓存/**", "**/Docs/临时/**"],
     },
   },
   test: {

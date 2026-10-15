@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { showToast } from "../../components/Toast";
 import {
   modeSeconds,
@@ -26,6 +27,7 @@ export function usePomodoro() {
   const revision = useRef(0);
   const checkpoint = useRef(0);
   const failedSave = useRef(false);
+  const restoring = useRef(false);
   const persist = useCallback((next: TimerState) => {
     current.current = next;
     setState(next);
@@ -65,10 +67,9 @@ export function usePomodoro() {
     const tick = () => {
       const time = Date.now();
       setNow(time);
-      if (!ready) return;
+      if (!ready || restoring.current) return;
       const next = finishTimer(current.current, time);
       if (next !== current.current) {
-        const focus = current.current.mode === "focus";
         showToast(
           current.current.mode === "focus"
             ? "一个番茄完成了，休息一下吧"
@@ -76,11 +77,6 @@ export function usePomodoro() {
           "info",
         );
         persist(next);
-        void invoke("pomodoro_alert", {
-          focus,
-          sound: next.settings.sound,
-          notification: next.settings.notification,
-        }).catch(() => showToast("系统提醒发送失败，计时记录已保留", "warning"));
       } else if (current.current.endsAt !== null && time - checkpoint.current >= 10000) {
         checkpoint.current = time;
         persist({
@@ -92,7 +88,24 @@ export function usePomodoro() {
     };
     const timer = window.setInterval(tick, 500);
     window.addEventListener("focus", tick);
+    let cancelled = false;
+    const listeners: UnlistenFn[] = [];
+    if (isTauri()) {
+      const add = (promise: Promise<UnlistenFn>) => {
+        void promise
+          .then((unlisten) => (cancelled ? unlisten() : listeners.push(unlisten)))
+          .catch(() => showToast("番茄钟后台提醒连接失败", "warning"));
+      };
+      add(listen("pomodoro://deadline", tick));
+      add(
+        listen("pomodoro://alert-error", () =>
+          showToast("桌面提醒未能打开，计时记录已保留", "warning"),
+        ),
+      );
+    }
     return () => {
+      cancelled = true;
+      listeners.forEach((unlisten) => unlisten());
       window.clearInterval(timer);
       window.removeEventListener("focus", tick);
     };
@@ -256,7 +269,20 @@ export function usePomodoro() {
     await queue.current;
     if (failedSave.current) throw new Error("番茄钟保存失败");
   };
+  const restoreRecord = async (id: string) => {
+    restoring.current = true;
+    try {
+      await flush();
+      const records = await invoke<FocusRecord[]>("trash_restore", { id });
+      const next = { ...current.current, records };
+      current.current = next;
+      setState(next);
+    } finally {
+      restoring.current = false;
+    }
+  };
   return {
+    restoreRecord,
     state,
     remaining: secondsLeft(state, now),
     now,

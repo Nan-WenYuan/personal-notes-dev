@@ -423,8 +423,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                       title="删除记录"
                       aria-label={`删除记录 ${time(record.completedAt)}`}
                       onClick={() => {
-                        if (window.confirm("删除这条专注记录？当天数量和时长会同步更新。"))
-                          timer.changeRecord(null, record.id);
+                        timer.changeRecord(null, record.id);
                       }}
                     >
                       删除
@@ -521,7 +520,7 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                 longEvery: Number(data.get("rounds")),
                 autoCycle: data.has("auto"),
                 sound: data.has("sound"),
-                notification: data.has("notification"),
+                notification: true,
               };
               if (
                 ![
@@ -592,14 +591,6 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
               <input type="checkbox" name="sound" defaultChecked={timer.state.settings.sound} />
               完成时播放提醒音
             </label>
-            <label className="pomodoro-check">
-              <input
-                type="checkbox"
-                name="notification"
-                defaultChecked={timer.state.settings.notification}
-              />
-              发送系统通知
-            </label>
             <button
               type="button"
               className="pomodoro-test-alert"
@@ -611,13 +602,12 @@ export function PomodoroBoard({ timer }: { timer: ReturnType<typeof usePomodoro>
                     invoke("pomodoro_alert", {
                       focus: true,
                       sound: data?.has("sound") ?? true,
-                      notification: data?.has("notification") ?? true,
                     }),
                   )
-                  .catch(() => setFormError("系统提醒发送失败，请检查系统通知设置"));
+                  .catch(() => setFormError("桌面提醒未能打开，请重试"));
               }}
             >
-              试听提醒
+              测试提醒
             </button>
             <p>修改时长从下一次计时生效，当前专注记录保留原时长。</p>
             {formError && <p role="alert">{formError}</p>}

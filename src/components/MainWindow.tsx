@@ -1,5 +1,11 @@
+import { RecycleBin } from "./RecycleBin";
+import { BooksPage } from "./BooksPage";
+import { flushBookProgress } from "../features/books/storage";
+import { ProjectBookNavigation } from "./ProjectBookNavigation";
+import { flushProjectNotes } from "../features/notes/projectNoteStorage";
+import { ProjectList } from "./ProjectList";
 import { useNoteCategoryDrag } from "../features/notes/useNoteCategoryDrag";
-import { FolderPlus, Bot, StickyNote, Inbox, Folder } from "lucide-react";
+import { FolderPlus, Bot, StickyNote, Inbox, Folder, Trash2 } from "lucide-react";
 import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -416,7 +422,6 @@ export function MainWindow({
       window.removeEventListener("blur", reset);
     };
   }, []);
-  const [batchDelete, setBatchDelete] = useState<string[] | null>(null);
   const [renameNote, setRenameNote] = useState<{ id: string; title: string } | null>(null);
   const [noteActionBusy, setNoteActionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -425,13 +430,24 @@ export function MainWindow({
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [content, setContent] = useState("");
+  const [projectReturn, setProjectReturn] = useState<string | null>(null);
+  const [projectEntry, setProjectEntry] = useState<string | null>(null);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [booksOpen, setBooksOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashRefresh, setTrashRefresh] = useState(0);
   const [quadrantsOpen, setQuadrantsOpen] = useState(false);
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const pomodoro = usePomodoro();
   useEffect(() => {
     let cancelled = false;
     const subscription = listen("app://prepare-exit-save", () => {
-      void Promise.all([pomodoro.flush(), flushQuadrants()])
+      void Promise.all([
+        pomodoro.flush(),
+        flushQuadrants(),
+        flushProjectNotes(),
+        flushBookProgress(),
+      ])
         .then(() => invoke("app_exit_save_report", { proceed: true }))
         .catch(() => {
           showToast("任务或番茄钟保存失败，请重试保存后退出");
@@ -473,8 +489,6 @@ export function MainWindow({
   const [skillInstallPrompt, setSkillInstallPrompt] = useState<string | null>(null);
   const [savedDataDir, setSavedDataDir] = useState<string | null>(initialConfig?.dataDir ?? null);
   const [noteTransitionKey, setNoteTransitionKey] = useState(0);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [deleteExiting, setDeleteExiting] = useState(false);
   const [, setPinnedTileIds] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<string[]>([]);
   const [categorySortTarget, setCategorySortTarget] = useState<string | null>(null);
@@ -498,14 +512,13 @@ export function MainWindow({
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [categoryMenu, setCategoryMenu] = useState<CategoryMenuState | null>(null);
   const [categoryMenuClosing, setCategoryMenuClosing] = useState(false);
-  const [categoryMenuConfirmDelete, setCategoryMenuConfirmDelete] = useState(false);
   const [categoryMenuHoverSuppressed, setCategoryMenuHoverSuppressed] = useState(false);
   const { popupRef: noteMenuRef, popupPosition: noteMenuPosition } = useViewportPopupPosition(
     noteMenu,
     `${noteMenuMode}:${categories.length}`,
   );
   const { popupRef: categoryMenuRef, popupPosition: categoryMenuPosition } =
-    useViewportPopupPosition(categoryMenu, categoryMenuConfirmDelete);
+    useViewportPopupPosition(categoryMenu);
   const richEditorRef = useRef<RichEditorHandle>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const windowLabelRef = useRef("main");
@@ -559,7 +572,6 @@ export function MainWindow({
     setNoteMenu(null);
     setCategoryMenu(null);
     setNoteMenuMode("main");
-    setCategoryMenuConfirmDelete(false);
   }, []);
   useEffect(() => {
     const pointer = (event: PointerEvent) => {
@@ -738,11 +750,16 @@ export function MainWindow({
 
   const applyNote = useCallback(
     (note: Note) => {
+      // Refreshing the current note must retain its project navigation context.
+      if (selectedIdRef.current !== note.id) setProjectReturn(null);
       diskBaseline.current = { id: note.id, content: note.content };
       setKnowledgeConflict(false);
       setHoveredId(null);
       setQuadrantsOpen(false);
       setPomodoroOpen(false);
+      setProjectsOpen(false);
+      setBooksOpen(false);
+      setTrashOpen(false);
       setActiveCategory(note.category);
       setSelectedNoteIds((current) => (current.size ? current : new Set([note.id])));
       if (!selectionAnchor.current) selectionAnchor.current = note.id;
@@ -806,6 +823,7 @@ export function MainWindow({
   }, [refreshNotes]);
 
   const clearCurrentNote = useCallback(() => {
+    setProjectReturn(null);
     diskBaseline.current = null;
     setKnowledgeConflict(false);
     setSelectedNoteIds(new Set());
@@ -1188,6 +1206,7 @@ export function MainWindow({
     const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
     const unlisten = getCurrentWindow().onDragDropEvent((event) => {
+      if (booksOpen || trashOpen) return;
       if (event.payload.type !== "drop") return;
       const textPaths: string[] = [];
       const imagePaths: string[] = [];
@@ -1223,7 +1242,7 @@ export function MainWindow({
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [loadExternalFile, setContent]);
+  }, [loadExternalFile, setContent, booksOpen, trashOpen]);
 
   useEffect(() => {
     const unlisten = listen<string>("open-note", (event) => {
@@ -1330,7 +1349,6 @@ export function MainWindow({
     const timer = window.setTimeout(() => {
       setCategoryMenu(null);
       setCategoryMenuClosing(false);
-      setCategoryMenuConfirmDelete(false);
       setCategoryMenuHoverSuppressed(false);
     }, 150);
     return () => window.clearTimeout(timer);
@@ -1346,12 +1364,6 @@ export function MainWindow({
       window.removeEventListener("mousedown", releaseHover);
     };
   }, [categoryMenuHoverSuppressed, categoryMenu]);
-
-  const switchCategoryMenuPanel = useCallback((confirmDelete: boolean) => {
-    setCategoryMenuHoverSuppressed(true);
-    setCategoryMenuConfirmDelete(confirmDelete);
-    (document.activeElement as HTMLElement | null)?.blur();
-  }, []);
 
   const performSave = useCallback(
     async (force: boolean): Promise<boolean> => {
@@ -1475,11 +1487,47 @@ export function MainWindow({
     [performSave],
   );
 
+  const desktopPomodoroAction = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    desktopPomodoroAction.current = async () => {
+      const requested = await invoke<boolean>("pomodoro_take_open_request");
+      if (!requested || !(await saveCurrentNote())) return;
+      clearCurrentNote();
+      setActiveCategory("");
+      setQuadrantsOpen(false);
+      setPomodoroOpen(true);
+      setProjectsOpen(false);
+      setBooksOpen(false);
+      setTrashOpen(false);
+    };
+  }, [saveCurrentNote, clearCurrentNote]);
+  useEffect(() => {
+    let cancelled = false;
+    const open = () => {
+      if (!cancelled)
+        void desktopPomodoroAction
+          .current()
+          .catch(() => showToast("无法打开番茄钟，请重试", "warning"));
+    };
+    const subscription = listen("pomodoro://open", open);
+    void subscription
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else open();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      void subscription.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
   useEffect(() => {
     const unlisten = listen<UpdateInstallPrepareRequest>("update://prepare-install", (event) => {
       const respond = async () => {
         await pomodoro.flush();
         await flushQuadrants();
+        await flushBookProgress();
         const windowLabel = windowLabelRef.current;
         // 无未保存修改时直接上报就绪：避免排进 saveQueueRef，被正在执行的
         // 防抖自动保存拖住、不必要地延迟安装准备响应
@@ -1726,7 +1774,6 @@ export function MainWindow({
 
   const handleSelectNote = async (id: string) => {
     if (id === selectedId) return;
-    setDeleteConfirm(false);
     // 排队保存：等待可能在途的自动保存，并把尚未落盘的修改一并存掉
     await saveCurrentNote();
 
@@ -1774,9 +1821,11 @@ export function MainWindow({
     selectionAnchor.current = null;
     setQuadrantsOpen(false);
     setPomodoroOpen(false);
+    setProjectsOpen(false);
+    setBooksOpen(false);
+    setTrashOpen(false);
     setActiveCategory("");
     if (id === selectedId) return;
-    setDeleteConfirm(false);
     await saveCurrentNote();
 
     const file = externalFiles.find((f) => f.id === id);
@@ -1826,20 +1875,35 @@ export function MainWindow({
     }
   };
 
-  const handleDeleteNote = async (noteId = selectedId) => {
-    if (!noteId) return;
-
-    setDeleteConfirm(false);
+  const noteDeleteBusy = useRef(false);
+  const handleDeleteNotes = async (requestedIds: string[]) => {
+    if (noteDeleteBusy.current) return;
+    const ids = [...new Set(requestedIds)].filter((id) => notes.some((note) => note.id === id));
+    if (!ids.length) return;
+    noteDeleteBusy.current = true;
+    setNoteActionBusy(true);
+    const deletedIds: string[] = [];
     try {
-      await deleteNote(noteId);
-      const remaining = await refreshNotes();
-      if (noteId === selectedId && remaining[0]) {
-        await loadNote(remaining[0].id);
-      } else if (noteId === selectedId) {
-        clearCurrentNote();
+      if (!(await saveCurrentNote())) return;
+      try {
+        for (const id of ids) {
+          await deleteNote(id);
+          deletedIds.push(id);
+        }
+      } finally {
+        const remaining = await refreshNotes();
+        if (selectedId && deletedIds.includes(selectedId)) {
+          if (remaining[0]) await loadNote(remaining[0].id);
+          else clearCurrentNote();
+        }
+        setSelectedNoteIds((old) => new Set([...old].filter((id) => !deletedIds.includes(id))));
       }
+      showToast(`已将 ${deletedIds.length} 篇笔记及对应图片移入回收站`, "success");
     } catch (error) {
       showToast(getErrorMessage(error));
+    } finally {
+      noteDeleteBusy.current = false;
+      setNoteActionBusy(false);
     }
   };
 
@@ -1848,36 +1912,28 @@ export function MainWindow({
       const target = event.target as HTMLElement;
       if (
         target.closest('input, textarea, [contenteditable="true"], [role="dialog"]') ||
-        batchDelete ||
+        trashOpen ||
+        booksOpen ||
         renameNote ||
         noteActionBusy
       )
         return;
-      if (event.key !== "Delete") return;
+      if (event.key !== "Delete" || event.repeat || noteDeleteBusy.current) return;
       const ids = [...selectedNoteIds].filter((id) => notes.some((note) => note.id === id));
       if (!ids.length) return;
       event.preventDefault();
-      setBatchDelete(ids);
+      void handleDeleteNotes(ids);
     };
     document.addEventListener("keydown", keydown, true);
     return () => document.removeEventListener("keydown", keydown, true);
-  }, [selectedNoteIds, notes, batchDelete, renameNote, noteActionBusy]);
+  }, [selectedNoteIds, notes, renameNote, noteActionBusy, trashOpen, booksOpen]);
 
   const confirmNoteAction = async () => {
     if (noteActionBusy) return;
     setNoteActionBusy(true);
     try {
       if (!(await saveCurrentNote())) return;
-      if (batchDelete) {
-        for (const id of batchDelete) await deleteNote(id);
-        const remaining = await refreshNotes();
-        if (selectedId && batchDelete.includes(selectedId)) {
-          if (remaining[0]) await loadNote(remaining[0].id);
-          else clearCurrentNote();
-        }
-        setSelectedNoteIds(new Set());
-        setBatchDelete(null);
-      } else if (renameNote) {
+      if (renameNote) {
         const current = await getNote(renameNote.id);
         const updated = await updateNote(current.id, {
           title: renameNote.title,
@@ -2020,7 +2076,7 @@ export function MainWindow({
     }
 
     setNoteMenuClosing(true);
-    setBatchDelete(selectedNoteIds.has(note.id) ? [...selectedNoteIds] : [note.id]);
+    void handleDeleteNotes(selectedNoteIds.has(note.id) ? [...selectedNoteIds] : [note.id]);
   };
 
   const handleMoveNote = async (noteId: string, targetCategory: string) => {
@@ -2153,15 +2209,26 @@ export function MainWindow({
     }
   };
 
+  const categoryDeleteBusy = useRef(false);
   const handleDeleteCategory = async (name: string) => {
+    if (categoryDeleteBusy.current) return;
+    categoryDeleteBusy.current = true;
     try {
+      if (!(await saveCurrentNote())) return;
+      const selectedInCategory = notes.some(
+        (note) => note.id === selectedId && note.category === name,
+      );
       await deleteCategory(name);
       await refreshNotes();
       if (activeCategory === name) {
         setActiveCategory("");
       }
+      if (selectedInCategory) clearCurrentNote();
+      showToast("分类及其中的笔记已移入回收站", "success");
     } catch (error) {
       showToast(getErrorMessage(error));
+    } finally {
+      categoryDeleteBusy.current = false;
     }
   };
 
@@ -2535,7 +2602,7 @@ export function MainWindow({
   };
 
   const handleClose = () => {
-    void Promise.all([pomodoro.flush(), flushQuadrants()])
+    void Promise.all([pomodoro.flush(), flushQuadrants(), flushProjectNotes(), flushBookProgress()])
       .then(() => closeCurrentWindow())
       .catch(() => showToast("任务或番茄钟保存失败，请先重试保存再退出"));
   };
@@ -2555,16 +2622,15 @@ export function MainWindow({
           {draggingNote.title}
         </div>
       )}
-      {(batchDelete || renameNote) && (
+      {renameNote && (
         <div className="fixed inset-0 z-[110] bg-black/20 flex items-center justify-center">
           <div
             role="dialog"
             aria-modal="true"
-            aria-label={batchDelete ? "删除笔记" : "重命名笔记"}
+            aria-label="重命名笔记"
             className="w-80 rounded-xl border border-paper-deep bg-paper p-5 shadow-xl text-ink"
             onKeyDown={(event) => {
               if (event.key === "Escape" && !noteActionBusy) {
-                setBatchDelete(null);
                 setRenameNote(null);
               }
               if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
@@ -2573,30 +2639,22 @@ export function MainWindow({
               }
             }}
           >
-            <h2 className="text-sm font-medium mb-4">
-              {batchDelete ? `删除选中的 ${batchDelete.length} 篇笔记？` : "重命名笔记"}
-            </h2>
-            {batchDelete ? (
-              <p className="text-xs text-ink-ghost mb-4">笔记及对应图片将移入回收站。</p>
-            ) : (
-              <input
-                autoFocus
-                aria-label="笔记名称"
-                value={renameNote!.title}
-                onFocus={(event) => event.target.select()}
-                onChange={(event) =>
-                  setRenameNote((current) => current && { ...current, title: event.target.value })
-                }
-                className="w-full border border-paper-deep rounded-lg px-3 py-2 text-sm bg-paper-warm mb-4"
-              />
-            )}
+            <h2 className="text-sm font-medium mb-4">重命名笔记</h2>
+            <input
+              autoFocus
+              aria-label="笔记名称"
+              value={renameNote!.title}
+              onFocus={(event) => event.target.select()}
+              onChange={(event) =>
+                setRenameNote((current) => current && { ...current, title: event.target.value })
+              }
+              className="w-full border border-paper-deep rounded-lg px-3 py-2 text-sm bg-paper-warm mb-4"
+            />
             <div className="flex justify-end gap-3 text-xs">
               <button
-                autoFocus={!!batchDelete}
                 disabled={noteActionBusy}
                 className="px-3 py-2 rounded-lg hover:bg-paper-warm cursor-pointer"
                 onClick={() => {
-                  setBatchDelete(null);
                   setRenameNote(null);
                 }}
               >
@@ -2604,10 +2662,10 @@ export function MainWindow({
               </button>
               <button
                 disabled={noteActionBusy}
-                className={`px-3 py-2 rounded-lg cursor-pointer ${batchDelete ? "text-red-400 bg-red-400/10" : "text-bamboo bg-bamboo-mist"}`}
+                className="px-3 py-2 rounded-lg cursor-pointer text-bamboo bg-bamboo-mist"
                 onClick={() => void confirmNoteAction()}
               >
-                {noteActionBusy ? "处理中…" : batchDelete ? "删除" : "保存"}
+                {noteActionBusy ? "处理中…" : "保存"}
               </button>
             </div>
           </div>
@@ -2637,11 +2695,44 @@ export function MainWindow({
               —
             </span>
             <span className="text-[11px] text-ink-faint font-body truncate max-w-[240px] leading-none translate-y-px">
-              {(pomodoroOpen ? "番茄钟" : quadrantsOpen ? "四象限" : title) ||
-                t("common.untitledNote", { defaultValue: "无标题笔记" })}
+              {(trashOpen
+                ? "回收站"
+                : booksOpen
+                  ? "书籍"
+                  : projectsOpen
+                    ? "项目"
+                    : pomodoroOpen
+                      ? "番茄钟"
+                      : quadrantsOpen
+                        ? "四象限"
+                        : title) || t("common.untitledNote", { defaultValue: "无标题笔记" })}
             </span>
           </div>
           <div className="flex items-center">
+            <button
+              className="w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
+              title="回收站"
+              aria-label="回收站"
+              aria-pressed={trashOpen}
+              onClick={() =>
+                void (async () => {
+                  try {
+                    if (!(await saveCurrentNote())) return;
+                    await Promise.all([
+                      pomodoro.flush(),
+                      flushQuadrants(),
+                      flushProjectNotes(),
+                      flushBookProgress(),
+                    ]);
+                    setTrashOpen((open) => !open);
+                  } catch (error) {
+                    showToast(getErrorMessage(error));
+                  }
+                })()
+              }
+            >
+              <Trash2 size={14} />
+            </button>
             <button
               onClick={() => void handleOpenNotepad()}
               className="w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
@@ -2983,6 +3074,9 @@ export function MainWindow({
                           setActiveCategory("");
                           setQuadrantsOpen(true);
                           setPomodoroOpen(false);
+                          setProjectsOpen(false);
+                          setBooksOpen(false);
+                          setTrashOpen(false);
                         })()
                       }
                       className={`min-w-0 flex items-center gap-2 px-3 h-8 rounded-lg border text-left transition-colors cursor-pointer ${quadrantsOpen ? "border-cyan-600/40 bg-cyan-500/25" : "border-cyan-600/25 bg-cyan-500/15 hover:bg-cyan-500/20"}`}
@@ -3012,6 +3106,9 @@ export function MainWindow({
                           setActiveCategory("");
                           setQuadrantsOpen(false);
                           setPomodoroOpen(true);
+                          setProjectsOpen(false);
+                          setBooksOpen(false);
+                          setTrashOpen(false);
                         })()
                       }
                     >
@@ -3023,6 +3120,35 @@ export function MainWindow({
                       </span>
                     </button>
                   </div>
+                  <ProjectBookNavigation
+                    projectsOpen={projectsOpen}
+                    booksOpen={booksOpen}
+                    onProjects={() =>
+                      void (async () => {
+                        if (!(await saveCurrentNote())) return;
+                        clearCurrentNote();
+                        setActiveCategory("");
+                        setQuadrantsOpen(false);
+                        setPomodoroOpen(false);
+                        setProjectEntry(null);
+                        setBooksOpen(false);
+                        setTrashOpen(false);
+                        setProjectsOpen(true);
+                      })()
+                    }
+                    onBooks={() =>
+                      void (async () => {
+                        if (!(await saveCurrentNote())) return;
+                        clearCurrentNote();
+                        setActiveCategory("");
+                        setQuadrantsOpen(false);
+                        setPomodoroOpen(false);
+                        setProjectsOpen(false);
+                        setBooksOpen(true);
+                        setTrashOpen(false);
+                      })()
+                    }
+                  />
                   {externalFiles.length > 0 && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] text-ink-ghost/50 font-mono tracking-wider uppercase">
@@ -3156,7 +3282,6 @@ export function MainWindow({
                               category: group.category,
                             });
                             setCategoryMenuClosing(false);
-                            setCategoryMenuConfirmDelete(false);
                           }}
                           onDragOver={(e) => {
                             e.preventDefault();
@@ -3354,8 +3479,59 @@ export function MainWindow({
           )}
 
           <div className="flex-1 flex flex-col min-w-0 relative">
+            {trashOpen && (
+              <RecycleBin
+                onBack={() => setTrashOpen(false)}
+                onRestore={async (entry) => {
+                  if (entry.kind === "pomodoro") await pomodoro.restoreRecord(entry.id);
+                  else await invoke("trash_restore", { id: entry.id });
+                  await refreshNotes();
+                  setTrashRefresh((value) => value + 1);
+                }}
+              />
+            )}
+            {booksOpen && <BooksPage key={`books-${trashRefresh}`} active={!trashOpen} />}
+            {projectsOpen && (
+              <ProjectList
+                key={`projects-${trashRefresh}`}
+                initialProjectId={projectEntry}
+                onOpenNote={async (projectId, noteId, legacy) => {
+                  if (!(await saveCurrentNote())) throw new Error("当前笔记保存失败，请重试");
+                  if (noteId && !legacy) await loadNote(noteId);
+                  else {
+                    const note = await invoke<Note>("projects_create_note", {
+                      projectId,
+                      legacyId: legacy ? noteId : null,
+                    });
+                    applyNote(note);
+                    replaceNoteMetadata(note);
+                  }
+                  setProjectReturn(projectId);
+                  setProjectEntry(projectId);
+                }}
+              />
+            )}
+            {projectReturn && !booksOpen && !projectsOpen && !quadrantsOpen && !pomodoroOpen && (
+              <button
+                className="text-left px-4 py-2 text-[12px] text-bamboo border-b border-paper-deep/30 cursor-pointer"
+                onClick={() =>
+                  void (async () => {
+                    if (!(await saveCurrentNote())) return;
+                    const id = projectReturn;
+                    clearCurrentNote();
+                    setProjectEntry(id);
+                    setBooksOpen(false);
+                    setTrashOpen(false);
+                    setProjectsOpen(true);
+                  })()
+                }
+              >
+                ← 返回项目笔记
+              </button>
+            )}
             {quadrantsOpen && (
               <QuadrantBoard
+                key={`quadrants-${trashRefresh}`}
                 timer={pomodoro}
                 onStartTask={(task, minutes) => {
                   pomodoro.startTask(task, minutes);
@@ -3461,63 +3637,28 @@ export function MainWindow({
                   {t("common.save", { defaultValue: "保存" })}
                 </button>
 
-                {deleteConfirm ? (
-                  <div
-                    className={`flex items-center gap-1 ml-1 ${deleteExiting ? "animate-delete-confirm-exit" : "animate-delete-confirm"}`}
+                <button
+                  onClick={() => {
+                    if (selectedId) void handleDeleteNotes([selectedId]);
+                  }}
+                  disabled={!selectedId || noteActionBusy}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-red-400 hover:bg-danger-bg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={t("noteMenu.delete", { defaultValue: "删除笔记" })}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    <span className="text-[11px] text-red-400 whitespace-nowrap">
-                      {t("main.editor.confirmDelete", { defaultValue: "确认删除？" })}
-                    </span>
-                    <button
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setDeleteExiting(true);
-                        setTimeout(() => {
-                          setDeleteExiting(false);
-                          setDeleteConfirm(false);
-                          void handleDeleteNote();
-                        }, 150);
-                      }}
-                      className="px-2 h-6 rounded-md text-[11px] text-cloud bg-red-400 hover:bg-red-500 transition-colors cursor-pointer whitespace-nowrap outline-none"
-                    >
-                      {t("common.delete", { defaultValue: "删除" })}
-                    </button>
-                    <button
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setDeleteExiting(true);
-                        setTimeout(() => {
-                          setDeleteExiting(false);
-                          setDeleteConfirm(false);
-                        }, 150);
-                      }}
-                      className="px-2 h-6 rounded-md text-[11px] text-ink-faint hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer outline-none"
-                    >
-                      {t("common.cancel", { defaultValue: "取消" })}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setDeleteConfirm(true)}
-                    disabled={!selectedId}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-red-400 hover:bg-danger-bg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={t("noteMenu.delete", { defaultValue: "删除笔记" })}
-                  >
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="3,6 5,6 21,6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    </svg>
-                  </button>
-                )}
+                    <polyline points="3,6 5,6 21,6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
               </div>
 
               <SlidingButtonGroup
@@ -4012,112 +4153,84 @@ export function MainWindow({
           }}
           onMouseDown={(event) => event.stopPropagation()}
         >
-          {categoryMenuConfirmDelete ? (
-            <div key="category-confirm" className="animate-menu-slide-left">
-              <div className="px-3 py-1.5 text-[11px] font-body text-ink-faint border-b border-paper-deep/20">
-                {t("main.category.confirmDelete", {
-                  category: categoryMenu.category,
-                  defaultValue: "确认删除「{{category}}」？",
-                })}
-              </div>
-              <button
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  void handleDeleteCategory(categoryMenu.category);
-                  setCategoryMenuClosing(true);
-                }}
-                className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer outline-none"
-              >
-                {t("main.category.confirmDeleteAction", { defaultValue: "确认删除" })}
-              </button>
-              <button
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => switchCategoryMenuPanel(false)}
-                className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer outline-none"
-              >
-                {t("common.cancel", { defaultValue: "取消" })}
-              </button>
-            </div>
-          ) : (
-            <div key="category-main" className="animate-menu-slide-right">
-              <button
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  const category = categoryMenu.category;
-                  setCategoryMenuClosing(true);
-                  void handleNewNote(category);
-                }}
-                className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
-              >
-                {t("main.sidebar.newNote", { defaultValue: "新建笔记" })}
-              </button>
-              {categoryMenu.category === "Agent知识库" &&
-                (
-                  [
-                    ["打开知识库目录", "open"],
-                    ["查看技能安装提示词", "setup"],
-                  ] as const
-                ).map(([label, action]) => (
-                  <button
-                    key={action}
-                    className={`w-full text-left px-3 py-1.5 text-[12px] cursor-pointer ${action === "setup" ? "text-orange-600 hover:bg-orange-500/10 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300" : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"}`}
-                    onClick={() =>
-                      void (async () => {
-                        setCategoryMenuClosing(true);
-                        try {
-                          if (action === "open") {
-                            await invoke("agent_knowledge_open_directory");
-                            return;
-                          }
-                          const path = await invoke<string>("agent_knowledge_directory", {
-                            setup: action === "setup",
-                          });
-                          {
-                            setSkillPromptPath(path);
-                            const savedPrompt = await invoke<string | null>(
-                              "agent_skill_prompt_get",
-                            );
-                            setSkillInstallPrompt(
-                              savedPrompt !== null
-                                ? savedPrompt.split("{{知识库目录}}").join(path)
-                                : `请为当前 AI 开发工具创建并安装一个“开发知识库”技能，使用该工具支持的技能格式和安装位置；如果不支持技能，请说明并提供等效的项目规则。先检查是否已安装同名或用途相同的技能：如果已有，读取现有技能，在原位置更新知识库路径和本次规则，保留仍有效的自定义内容，不重复安装、不创建同用途副本；有冲突时遵循用户当前要求，并说明调整。只有没有适用技能时才新建安装。\n知识库目录：${path}\n先读取该目录的 AGENTS.md 和 .agent-index.md，再创建技能。技能应规定：开发前按需搜索、查阅相关笔记，不加载全部知识库；开发过程中持续沉淀：每当解决问题、完成验证、确认重要设计决定或发现可复用经验时，立即判断是否值得记录；有经过验证的新结论就及时更新知识库，不必等整个任务结束，也不要等用户提醒。优先更新已有主题，记录结论、适用条件、验证依据和相关代码位置；失败尝试只有明确原因及可复用教训时才记录。每个开发阶段结束前检查是否有遗漏，交付时简短说明已沉淀的主题或本次没有值得记录的新结论。不要把未验证猜测、重复内容或流水账写进知识库。直接读写 UTF-8 Markdown，不修改软件索引；修改前重新读取文件，避免覆盖他人内容。遵循用户当前要求和项目规范，不保存凭据或私人数据。\n知识库路径集中配置，迁移时只需修改一处。技能中保存使用流程，具体经验保留在知识库笔记里。完成后说明是新建还是更新、技能位置、主要修改和调用方式；确认技能已写入并可被当前工具发现，不要仅返回一份建议文本。`,
-                            );
-                          }
-                          await refreshNotes();
-                        } catch (error) {
-                          showToast(getErrorMessage(error));
+          <div key="category-main" className="animate-menu-slide-right">
+            <button
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                const category = categoryMenu.category;
+                setCategoryMenuClosing(true);
+                void handleNewNote(category);
+              }}
+              className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+            >
+              {t("main.sidebar.newNote", { defaultValue: "新建笔记" })}
+            </button>
+            {categoryMenu.category === "Agent知识库" &&
+              (
+                [
+                  ["打开知识库目录", "open"],
+                  ["查看技能安装提示词", "setup"],
+                ] as const
+              ).map(([label, action]) => (
+                <button
+                  key={action}
+                  className={`w-full text-left px-3 py-1.5 text-[12px] cursor-pointer ${action === "setup" ? "text-orange-600 hover:bg-orange-500/10 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300" : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"}`}
+                  onClick={() =>
+                    void (async () => {
+                      setCategoryMenuClosing(true);
+                      try {
+                        if (action === "open") {
+                          await invoke("agent_knowledge_open_directory");
+                          return;
                         }
-                      })()
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              {categoryMenu.category &&
-                !["Agent知识库", "便签"].includes(categoryMenu.category) && (
-                  <>
-                    <button
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setCategoryMenuClosing(true);
-                        setRenamingCategory(categoryMenu.category);
-                        setRenameCategoryValue(categoryMenu.category);
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
-                    >
-                      {t("main.category.rename", { defaultValue: "重命名" })}
-                    </button>
-                    <button
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => switchCategoryMenuPanel(true)}
-                      className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer border-t border-paper-deep/20 outline-none"
-                    >
-                      {t("main.category.delete", { defaultValue: "删除分类" })}
-                    </button>
-                  </>
-                )}
-            </div>
-          )}
+                        const path = await invoke<string>("agent_knowledge_directory", {
+                          setup: action === "setup",
+                        });
+                        {
+                          setSkillPromptPath(path);
+                          const savedPrompt = await invoke<string | null>("agent_skill_prompt_get");
+                          setSkillInstallPrompt(
+                            savedPrompt !== null
+                              ? savedPrompt.split("{{知识库目录}}").join(path)
+                              : `请为当前 AI 开发工具创建并安装一个“开发知识库”技能，使用该工具支持的技能格式和安装位置；如果不支持技能，请说明并提供等效的项目规则。先检查是否已安装同名或用途相同的技能：如果已有，读取现有技能，在原位置更新知识库路径和本次规则，保留仍有效的自定义内容，不重复安装、不创建同用途副本；有冲突时遵循用户当前要求，并说明调整。只有没有适用技能时才新建安装。\n知识库目录：${path}\n先读取该目录的 AGENTS.md 和 .agent-index.md，再创建技能。技能应规定：开发前按需搜索、查阅相关笔记，不加载全部知识库；开发过程中持续沉淀：每当解决问题、完成验证、确认重要设计决定或发现可复用经验时，立即判断是否值得记录；有经过验证的新结论就及时更新知识库，不必等整个任务结束，也不要等用户提醒。优先更新已有主题，记录结论、适用条件、验证依据和相关代码位置；失败尝试只有明确原因及可复用教训时才记录。每个开发阶段结束前检查是否有遗漏，交付时简短说明已沉淀的主题或本次没有值得记录的新结论。不要把未验证猜测、重复内容或流水账写进知识库。直接读写 UTF-8 Markdown，不修改软件索引；修改前重新读取文件，避免覆盖他人内容。遵循用户当前要求和项目规范，不保存凭据或私人数据。\n知识库路径集中配置，迁移时只需修改一处。技能中保存使用流程，具体经验保留在知识库笔记里。完成后说明是新建还是更新、技能位置、主要修改和调用方式；确认技能已写入并可被当前工具发现，不要仅返回一份建议文本。`,
+                          );
+                        }
+                        await refreshNotes();
+                      } catch (error) {
+                        showToast(getErrorMessage(error));
+                      }
+                    })()
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            {categoryMenu.category && !["Agent知识库", "便签"].includes(categoryMenu.category) && (
+              <>
+                <button
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setCategoryMenuClosing(true);
+                    setRenamingCategory(categoryMenu.category);
+                    setRenameCategoryValue(categoryMenu.category);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                >
+                  {t("main.category.rename", { defaultValue: "重命名" })}
+                </button>
+                <button
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setCategoryMenuClosing(true);
+                    void handleDeleteCategory(categoryMenu.category);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[12px] font-body text-red-400 hover:bg-danger-bg hover:text-red-500 transition-colors cursor-pointer border-t border-paper-deep/20 outline-none"
+                >
+                  {t("main.category.delete", { defaultValue: "删除分类" })}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
       {skillInstallPrompt !== null && (

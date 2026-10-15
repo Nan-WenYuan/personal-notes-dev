@@ -34,6 +34,9 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'src/assets/fonts/LICENSE_Fonts') -Destination $licensesDir
     Copy-Item -LiteralPath (Join-Path $repoRoot 'src/assets/fonts/LICENSE_SourceHanSerif') -Destination $licensesDir
+    foreach ($readerLicense in @('LICENSE-foliate-js', 'LICENSE-pdfjs', 'LICENSE-zip-js', 'LICENSE-fflate')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "public/book-engine/$readerLicense") -Destination $licensesDir
+    }
     Write-Output "PORTABLE_OUTPUT=$outputDir"
     Get-Item -LiteralPath (Join-Path $outputDir '花笺.exe') | Select-Object FullName, Length
 } finally {

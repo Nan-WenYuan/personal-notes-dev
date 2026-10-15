@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>书籍实书验收</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #faf9f6;
+        color: #253d32;
+        font: 15px sans-serif;
+      }
+      #host {
+        position: relative;
+        width: 1200px;
+        height: 760px;
+        background: white;
+        overflow: hidden;
+      }
+      #status {
+        padding: 12px;
+      }
+      #results {
+        white-space: pre-wrap;
+        font: 13px monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">正在准备…</div>
+    <div id="host"></div>
+    <pre id="results"></pre>
+    <script type="module">
+      import "/src/App.css";
+      import "/src/components/BooksPage.css";
+      import { openRenderer } from "/src/features/books/renderers.ts";
+      const names = [
+        "Alice-MOBI.mobi",
+        "Alice-AZW.azw",
+        "Alice-KF8.azw3",
+        "Alice-EPUB.epub",
+        "TXT-中文章节.txt",
+        "FB2-章节验收.fb2",
+        "CBZ-插图验收.cbz",
+        "PDF-多页验收.pdf",
+      ];
+      const host = document.querySelector("#host"),
+        status = document.querySelector("#status");
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      async function until(test, label, ms = 10000) {
+        const start = Date.now();
+        while (!test()) {
+          if (Date.now() - start > ms) throw Error(label);
+          await sleep(80);
+        }
+      }
+      function content(root) {
+        let text = "",
+          images = 0;
+        function walk(node) {
+          if (["STYLE", "SCRIPT"].includes(node.tagName)) return;
+          if (node.nodeType === Node.TEXT_NODE) text += " " + node.textContent;
+          for (const child of node.childNodes ?? []) {
+            if (child.tagName === "IMG" && child.naturalWidth > 0) images++;
+            if (child instanceof HTMLIFrameElement && child.contentDocument)
+              walk(child.contentDocument.documentElement);
+            if (child.shadowRoot) walk(child.shadowRoot);
+            walk(child);
+          }
+        }
+        walk(root);
+        return { text: text.replace(/\s+/g, " ").trim(), images };
+      }
+      window.readerResults = [];
+      window.readerDone = false;
+      for (const name of names) {
+        status.textContent = "正在验证 " + name;
+        const format = name.split(".").at(-1),
+          url = new URL(
+            "/Docs/%E4%B8%B4%E6%97%B6/%E4%B9%A6%E7%B1%8D%E5%AE%8C%E6%95%B4%E9%AA%8C%E6%94%B6/样书/" +
+              name,
+            location.href,
+          ).href;
+        const book = {
+          id: name,
+          title: name,
+          fileName: name,
+          format,
+          size: 1,
+          importedAt: 1,
+          lastReadAt: null,
+          location: null,
+          progress: 0,
+          readingMode: "page",
+        };
+        const result = { name, passed: false };
+        let controller,
+          abort = new AbortController();
+        try {
+          let ready = false,
+            toc = [],
+            location = "",
+            fraction = 0,
+            err;
+          const callbacks = {
+            ready: () => (ready = true),
+            toc: (items) => (toc = items),
+            position: (loc, f) => {
+              location = loc;
+              fraction = f;
+            },
+            error: (e) => (err = String(e)),
+          };
+          controller = await Promise.race([
+            openRenderer(host, url, book, callbacks, abort.signal),
+            sleep(15000).then(() => {
+              throw Error("打开超时");
+            }),
+          ]);
+          await until(() => ready || err, "正文加载超时");
+          if (err) throw Error(err);
+          result.tocCount = toc.length;
+          if (format !== "pdf" && !toc.length) throw Error("目录为空");
+          const flat = (items) => items.flatMap((x) => [x, ...flat(x.subitems ?? [])]);
+          const entries = flat(toc);
+          const target =
+            entries[Math.min(entries.length - 1, Math.max(1, Math.floor(entries.length / 2)))];
+          const initial = location;
+          if (target) {
+            controller.navigate(target.href);
+            result.target = target.label;
+          } else {
+            controller.next();
+            controller.next();
+          }
+          await until(() => location && location !== initial, "目录/翻页未改变阅读位置");
+          await sleep(400);
+          const page = content(host);
+          result.text = page.text.slice(0, 180);
+          result.images = page.images;
+          if (page.text.length < 15 && !page.images) throw Error("目标正文为空");
+          result.location = location;
+          result.progress = fraction;
+          abort.abort();
+          controller.destroy();
+          host.replaceChildren();
+          abort = new AbortController();
+          ready = false;
+          err = undefined;
+          location = "";
+          controller = await openRenderer(
+            host,
+            url,
+            { ...book, location: result.location, progress: result.progress },
+            callbacks,
+            abort.signal,
+          );
+          await until(() => ready || err, "续读加载超时");
+          if (err) throw Error(err);
+          await until(() => location, "续读没有位置回报");
+          result.resumedProgress = fraction;
+          if (Math.abs(fraction - result.progress) > 0.025) throw Error("续读位置偏移过大");
+          result.passed = true;
+        } catch (e) {
+          result.error = String(e);
+        } finally {
+          abort.abort();
+          controller?.destroy();
+          host.replaceChildren();
+        }
+        window.readerResults.push(result);
+        document.querySelector("#results").textContent = JSON.stringify(
+          window.readerResults,
+          null,
+          2,
+        );
+      }
+      status.textContent = "验收结束";
+      window.readerDone = true;
+    </script>
+  </body>
+</html>

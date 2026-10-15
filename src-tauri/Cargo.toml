@@ -1,6 +1,6 @@
 [package]
 name = "floral-notepaper"
-version = "1.11.0"
+version = "1.12.0"
 description = "Personal development edition for local notes and knowledge management"
 authors = ["Nan-WenYuan", "Achilng"]
 repository = "https://github.com/Nan-WenYuan/personal-notes-dev"
@@ -16,6 +16,9 @@ default-run = "floral-notepaper"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "floral_notepaper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+desktop-verification = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -50,6 +53,7 @@ webview2-com = "0.38"
 windows-core = "0.61"
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
+  "Win32_Media_Audio",
   "Win32_Storage_FileSystem",
   "Win32_Storage_Packaging_Appx",
   "Win32_System_Console",

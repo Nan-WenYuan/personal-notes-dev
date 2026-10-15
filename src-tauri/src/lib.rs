@@ -1,7 +1,11 @@
+mod books;
 pub mod desktop;
 pub mod json_io;
 pub mod locales;
 mod pomodoro;
+mod pomodoro_window;
+mod projects;
+mod recycle_bin;
 pub mod services;
 pub mod updater;
 
@@ -35,16 +39,19 @@ fn app_name() -> Result<String, AppError> {
 
 #[tauri::command]
 fn notes_list() -> Result<Vec<NoteMetadata>, AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.list_notes()
 }
 
 #[tauri::command]
 fn notes_get(id: String) -> Result<Note, AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.read_note(&id)
 }
 
 #[tauri::command]
 fn notes_create(app: AppHandle, request: SaveNoteRequest) -> Result<Note, AppError> {
+    let _trash_guard = recycle_bin::lock();
     let note = default_store()?.create_note(request)?;
     let _ = app.emit("notes-changed", ());
     Ok(note)
@@ -57,6 +64,7 @@ fn notes_update(
     request: SaveNoteRequest,
     expected_content: Option<String>,
 ) -> Result<Note, AppError> {
+    let _trash_guard = recycle_bin::lock();
     let note = default_store()?.update_note_checked(&id, request, expected_content.as_deref())?;
     let _ = app.emit("notes-changed", ());
     Ok(note)
@@ -116,6 +124,7 @@ fn notes_import_markdown(
     path: String,
     category: Option<String>,
 ) -> Result<Note, AppError> {
+    let _trash_guard = recycle_bin::lock();
     let note = default_store()?
         .import_markdown_file(&PathBuf::from(path), &category.unwrap_or_default())?;
     let _ = app.emit("notes-changed", ());
@@ -124,6 +133,7 @@ fn notes_import_markdown(
 
 #[tauri::command]
 fn notes_export_markdown(id: String, path: String) -> Result<(), AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.export_markdown_file(&id, &PathBuf::from(path))
 }
 
@@ -172,11 +182,13 @@ fn save_external_file(path: String, content: String) -> Result<(), AppError> {
 
 #[tauri::command]
 fn categories_list() -> Result<Vec<String>, AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.list_categories()
 }
 
 #[tauri::command]
 fn categories_create(app: AppHandle, name: String) -> Result<(), AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.create_category(&name)?;
     let _ = app.emit("notes-changed", ());
     Ok(())
@@ -184,6 +196,7 @@ fn categories_create(app: AppHandle, name: String) -> Result<(), AppError> {
 
 #[tauri::command]
 fn categories_rename(app: AppHandle, old_name: String, new_name: String) -> Result<(), AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.rename_category(&old_name, &new_name)?;
     let _ = app.emit("notes-changed", ());
     Ok(())
@@ -202,6 +215,7 @@ fn notes_move_category(
     id: String,
     category: String,
 ) -> Result<NoteMetadata, AppError> {
+    let _trash_guard = recycle_bin::lock();
     let result = default_store()?.move_note_to_category(&id, &category)?;
     let _ = app.emit("notes-changed", ());
     Ok(result)
@@ -401,6 +415,7 @@ fn quadrants_load() -> Result<Vec<QuadrantTask>, AppError> {
 
 #[tauri::command]
 fn categories_save_order(order: Vec<String>) -> Result<(), AppError> {
+    let _trash_guard = recycle_bin::lock();
     default_store()?.save_category_order(&order)
 }
 
@@ -413,7 +428,8 @@ fn quadrants_save(tasks: Vec<QuadrantTask>) -> Result<(), AppError> {
             details: Default::default(),
         });
     }
-    crate::json_io::write_json_atomic(&default_store()?.data_dir().join("四象限.json"), &tasks)
+    let _guard = recycle_bin::lock();
+    recycle_bin::save_with_history(default_store()?.data_dir(), "四象限.json", &tasks)
 }
 
 #[tauri::command]
@@ -701,17 +717,40 @@ pub fn run() {
             if !updater::platform::has_package_identity() {
                 updater::start_auto_check_scheduler(app.handle().clone());
             }
+            app.manage(pomodoro_window::DesktopPomodoro::default());
             desktop::setup_desktop(app)?;
             Ok(())
         })
-        .on_window_event(desktop::handle_window_event)
+        .on_window_event(|window, event| {
+            desktop::handle_window_event(window, event);
+            pomodoro_window::handle_window_event(window, event);
+        })
         .invoke_handler(tauri::generate_handler![
+            books::books_list,
+            books::books_import,
+            books::books_path,
+            books::books_progress,
+            books::books_reading_mode,
+            books::books_delete,
             categories_save_order,
+            recycle_bin::trash_list,
+            recycle_bin::trash_restore,
+            recycle_bin::trash_delete,
+            projects::projects_create_note,
+            projects::projects_save_note,
+            projects::projects_save_content,
+            projects::projects_load,
+            projects::projects_upsert,
             quadrants_load,
             quadrants_save,
             pomodoro::pomodoro_load,
             pomodoro::pomodoro_save,
             pomodoro::pomodoro_alert,
+            pomodoro_window::pomodoro_desktop_snapshot,
+            pomodoro_window::pomodoro_desktop_ready,
+            pomodoro_window::pomodoro_desktop_dismiss,
+            pomodoro_window::pomodoro_desktop_open,
+            pomodoro_window::pomodoro_take_open_request,
             app_name,
             notes_list,
             notes_get,
@@ -782,12 +821,10 @@ pub fn run() {
                         }
                     }
                 } else {
-                    pomodoro::clear_notification_icon();
                     drop(_app_handle.remove_tray_by_id("main-tray"));
                 }
             }
             if matches!(_event, tauri::RunEvent::Exit) {
-                pomodoro::clear_notification_icon();
                 if let Err(error) = pomodoro::pause_on_exit() {
                     eprintln!("failed to pause focus timer: {error}");
                 }

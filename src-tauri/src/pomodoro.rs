@@ -5,30 +5,14 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Mutex,
+    Condvar, Mutex, Once,
 };
-use tauri::Manager;
+use tauri::Emitter;
 static LOCK: Mutex<()> = Mutex::new(());
 static EXITING: AtomicBool = AtomicBool::new(false);
-#[cfg(target_os = "windows")]
-static NOTIFICATION_HWND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-pub fn clear_notification_icon() {
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIM_DELETE, NOTIFYICONDATAW};
-        let hwnd = NOTIFICATION_HWND.swap(0, Ordering::SeqCst);
-        if hwnd != 0 {
-            let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-            data.hWnd = hwnd as _;
-            data.uID = 0x504f4d4f;
-            unsafe {
-                Shell_NotifyIconW(NIM_DELETE, &data);
-            }
-        }
-    }
-}
+static REMINDERS: Mutex<ReminderClock> = Mutex::new(ReminderClock { active: None });
+static REMINDER_WAKE: Condvar = Condvar::new();
+static REMINDER_WORKER: Once = Once::new();
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -106,6 +90,156 @@ impl Default for State {
         }
     }
 }
+
+#[derive(Clone)]
+struct Reminder {
+    session_id: Option<String>,
+    ends_at: u64,
+    focus: bool,
+    sound: bool,
+    title: String,
+    seconds: u32,
+    sent: bool,
+}
+struct ReminderClock {
+    active: Option<Reminder>,
+}
+impl ReminderClock {
+    fn due(&mut self, now: u64) -> Option<Reminder> {
+        let reminder = self.active.as_mut()?;
+        if reminder.sent || now < reminder.ends_at {
+            return None;
+        }
+        reminder.sent = true;
+        Some(reminder.clone())
+    }
+    fn update(&mut self, state: &State) {
+        self.active = state.ends_at.map(|ends_at| {
+            let focus = state.mode == "focus";
+            let sent = self.active.as_ref().is_some_and(|old| {
+                old.session_id == state.session_id
+                    && old.ends_at == ends_at
+                    && old.focus == focus
+                    && old.sent
+            });
+            Reminder {
+                session_id: state.session_id.clone(),
+                ends_at,
+                focus,
+                sound: state.settings.sound,
+                title: state
+                    .session_task
+                    .as_ref()
+                    .map(|t| t.title.clone())
+                    .unwrap_or_else(|| "专注".into()),
+                seconds: state.session_seconds,
+                sent,
+            }
+        });
+    }
+}
+fn clock_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+fn deliver_reminder(app: &tauri::AppHandle, reminder: Reminder) {
+    if EXITING.load(Ordering::SeqCst) {
+        return;
+    }
+    if !play_sound(reminder.sound) {
+        eprintln!("pomodoro completion sound failed");
+    }
+    let notice = crate::pomodoro_window::Completion {
+        id: format!(
+            "{}:{}",
+            reminder.session_id.as_deref().unwrap_or("timer"),
+            reminder.ends_at
+        ),
+        title: if reminder.focus {
+            reminder.title
+        } else {
+            "休息结束".into()
+        },
+        focus: reminder.focus,
+        seconds: reminder.seconds,
+    };
+    if let Err(error) = crate::pomodoro_window::complete(app, notice) {
+        eprintln!("pomodoro reminder failed: {}", error.message);
+        let _ = app.emit_to("main", "pomodoro://alert-error", error.message);
+    }
+    let _ = app.emit_to("main", "pomodoro://deadline", ());
+}
+fn wait_for_reminder(
+    clock: &Mutex<ReminderClock>,
+    wake: &Condvar,
+    exiting: &AtomicBool,
+) -> Option<Reminder> {
+    let mut clock = clock.lock().ok()?;
+    loop {
+        if exiting.load(Ordering::SeqCst) {
+            return None;
+        }
+        let now = clock_now();
+        if let Some(reminder) = clock.due(now) {
+            return Some(reminder);
+        }
+        clock = if let Some(active) = clock.active.as_ref().filter(|r| !r.sent) {
+            // Recheck active sessions after clock changes or resume from sleep; idle sessions don't poll.
+            let wait = active.ends_at.saturating_sub(now).clamp(1, 1000);
+            wake.wait_timeout(clock, std::time::Duration::from_millis(wait))
+                .ok()?
+                .0
+        } else {
+            wake.wait(clock).ok()?
+        };
+    }
+}
+fn schedule_reminder(app: &tauri::AppHandle, state: &State) {
+    let due = if let Ok(mut clock) = REMINDERS.lock() {
+        // A frontend completion/pause arriving at the deadline must not cancel an unsent reminder.
+        let due = clock.due(clock_now());
+        clock.update(state);
+        due
+    } else {
+        None
+    };
+    REMINDER_WAKE.notify_all();
+    if let Some(reminder) = due {
+        deliver_reminder(app, reminder);
+    }
+    REMINDER_WORKER.call_once(|| {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            while let Some(reminder) = wait_for_reminder(&REMINDERS, &REMINDER_WAKE, &EXITING) {
+                deliver_reminder(&app, reminder);
+            }
+        });
+    });
+}
+
+#[cfg(all(test, feature = "desktop-verification"))]
+pub(super) fn start_desktop_verification(app: &tauri::AppHandle, deadline: u64) {
+    // Exercise the real native deadline path without loading/saving any user timer data.
+    schedule_reminder(
+        app,
+        &State {
+            ends_at: Some(deadline),
+            session_id: Some("desktop-verification".into()),
+            session_task: Some(TaskLink {
+                id: "verification".into(),
+                title: "桌面提醒验收".into(),
+            }),
+            session_seconds: 60,
+            settings: Settings {
+                sound: true,
+                ..Settings::default()
+            },
+            ..State::default()
+        },
+    );
+}
 fn error(message: &str) -> AppError {
     AppError {
         code: "pomodoro".into(),
@@ -135,6 +269,7 @@ fn validate(state: &State) -> Result<(), AppError> {
 #[tauri::command]
 pub fn pomodoro_load() -> Result<State, AppError> {
     let _lock = LOCK.lock().map_err(|_| error("计时数据锁不可用"))?;
+    let _trash_guard = crate::recycle_bin::lock();
     let path = default_store()?.data_dir().join("番茄钟.json");
     if !path.exists() {
         return Ok(State::default());
@@ -144,13 +279,41 @@ pub fn pomodoro_load() -> Result<State, AppError> {
     Ok(state)
 }
 #[tauri::command]
-pub fn pomodoro_save(state: State) -> Result<(), AppError> {
+pub fn pomodoro_save(app: tauri::AppHandle, state: State) -> Result<(), AppError> {
     let _lock = LOCK.lock().map_err(|_| error("计时数据锁不可用"))?;
     if EXITING.load(Ordering::SeqCst) {
         return Err(error("程序正在退出"));
     }
     validate(&state)?;
-    write_json_atomic(&default_store()?.data_dir().join("番茄钟.json"), &state)
+    let _trash_guard = crate::recycle_bin::lock();
+    crate::recycle_bin::save_with_history(default_store()?.data_dir(), "番茄钟.json", &state)?;
+    drop(_trash_guard);
+    drop(_lock);
+    schedule_reminder(&app, &state);
+    let timer = state
+        .session_id
+        .as_ref()
+        .map(|_| crate::pomodoro_window::DesktopTimer {
+            title: if state.mode == "focus" {
+                state
+                    .session_task
+                    .as_ref()
+                    .map(|t| t.title.clone())
+                    .unwrap_or_else(|| "专注".into())
+            } else if state.mode == "short" {
+                "短休息".into()
+            } else {
+                "长休息".into()
+            },
+            mode: state.mode.clone(),
+            ends_at: state.ends_at,
+            remaining: state.remaining,
+            seconds: state.session_seconds,
+        });
+    if let Err(error) = crate::pomodoro_window::update_timer(&app, timer) {
+        let _ = app.emit_to("main", "pomodoro://alert-error", error.message);
+    }
+    Ok(())
 }
 fn pause(state: &mut State, now: u64) {
     if let Some(end) = state.ends_at {
@@ -182,6 +345,10 @@ fn pause(state: &mut State, now: u64) {
 pub fn pause_on_exit() -> Result<(), AppError> {
     let _lock = LOCK.lock().map_err(|_| error("计时数据锁不可用"))?;
     EXITING.store(true, Ordering::SeqCst);
+    if let Ok(mut clock) = REMINDERS.lock() {
+        clock.active = None;
+        REMINDER_WAKE.notify_all();
+    }
     let path = default_store()?.data_dir().join("番茄钟.json");
     if !path.exists() {
         return Ok(());
@@ -195,94 +362,155 @@ pub fn pause_on_exit() -> Result<(), AppError> {
     write_json_atomic(&path, &state)
 }
 
-#[tauri::command]
-pub fn pomodoro_alert(
-    app: tauri::AppHandle,
-    focus: bool,
-    sound: bool,
-    notification: bool,
-) -> Result<(), AppError> {
-    let message = if focus {
-        "本次专注已完成，休息一下吧"
-    } else {
-        "休息结束，可以开始下一次专注了"
-    };
+fn play_sound(sound: bool) -> bool {
+    if !sound {
+        return true;
+    }
     #[cfg(target_os = "windows")]
     {
-        use windows_sys::Win32::UI::{
-            Shell::{
-                Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_INFO, NIIF_NOSOUND, NIM_ADD,
-                NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
-            },
-            WindowsAndMessaging::{LoadIconW, IDI_INFORMATION, MB_ICONASTERISK},
-        };
-        if sound {
-            unsafe {
-                windows_sys::Win32::System::Diagnostics::Debug::MessageBeep(MB_ICONASTERISK);
-            }
-        }
-        if notification {
-            let window = app
-                .get_webview_window("main")
-                .ok_or_else(|| error("主窗口不可用"))?;
-            let hwnd = window.hwnd().map_err(|_| error("无法获取通知窗口"))?.0 as usize;
-            let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-            data.hWnd = hwnd as _;
-            data.uID = 0x504f4d4f;
-            data.uFlags = NIF_ICON | NIF_INFO | NIF_TIP;
-            data.hIcon = unsafe { LoadIconW(std::ptr::null_mut(), IDI_INFORMATION) };
-            data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
-            for (to, from) in data
-                .szInfoTitle
-                .iter_mut()
-                .zip("花笺 · 番茄钟".encode_utf16())
-            {
-                *to = from;
-            }
-            for (to, from) in data.szTip.iter_mut().zip("花笺 · 专注提醒".encode_utf16()) {
-                *to = from;
-            }
-            for (to, from) in data.szInfo.iter_mut().zip(message.encode_utf16()) {
-                *to = from;
-            }
-            unsafe {
-                Shell_NotifyIconW(NIM_DELETE, &data);
-                if Shell_NotifyIconW(NIM_ADD, &data) == 0 {
-                    return Err(error("系统通知发送失败"));
-                }
-                data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-                Shell_NotifyIconW(NIM_SETVERSION, &data);
-            }
-            NOTIFICATION_HWND.store(hwnd, Ordering::SeqCst);
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(15));
-                let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-                data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-                data.hWnd = hwnd as _;
-                data.uID = 0x504f4d4f;
-                unsafe {
-                    Shell_NotifyIconW(NIM_DELETE, &data);
-                }
-            });
+        use windows_sys::Win32::Media::Audio::{PlaySoundA, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
+        // Embedded PCM stays valid for the entire asynchronous playback; no file
+        // paths, system sound scheme, browser autoplay or visible main window required.
+        static CHIME: &[u8] = include_bytes!("../../src/assets/pomodoro-complete.wav");
+        unsafe {
+            PlaySoundA(
+                CHIME.as_ptr(),
+                std::ptr::null_mut(),
+                SND_ASYNC | SND_MEMORY | SND_NODEFAULT,
+            ) != 0
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (message, sound);
-        if notification {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ =
-                    window.request_user_attention(Some(tauri::UserAttentionType::Informational));
-            }
-        }
+        true
     }
-    Ok(())
+}
+
+#[tauri::command]
+pub fn pomodoro_alert(app: tauri::AppHandle, focus: bool, sound: bool) -> Result<(), AppError> {
+    if !play_sound(sound) {
+        eprintln!("pomodoro completion sound failed");
+    }
+    let state = pomodoro_load()?;
+    crate::pomodoro_window::complete(
+        &app,
+        crate::pomodoro_window::Completion {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: if focus {
+                state
+                    .session_task
+                    .as_ref()
+                    .or(state.active_task.as_ref())
+                    .map(|t| t.title.clone())
+                    .unwrap_or_else(|| "专注".into())
+            } else {
+                "休息结束".into()
+            },
+            focus,
+            seconds: if focus {
+                state.settings.focus_minutes * 60
+            } else {
+                state.settings.short_minutes * 60
+            },
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(all(target_os = "windows", feature = "desktop-verification"))]
+    #[test]
+    #[ignore = "plays the real completion chime on the desktop audio device"]
+    fn real_desktop_completion_sound_can_play() {
+        assert!(
+            play_sound(true),
+            "Windows could not start the embedded completion chime"
+        );
+        // Don't let the isolated test process exit before async playback finishes.
+        std::thread::sleep(std::time::Duration::from_millis(1700));
+    }
+    #[test]
+    fn native_worker_reaches_the_deadline_without_any_frontend_tick() {
+        use std::sync::{mpsc, Arc};
+        let shared = Arc::new((
+            Mutex::new(ReminderClock { active: None }),
+            Condvar::new(),
+            AtomicBool::new(false),
+        ));
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .update(&running_reminder(clock_now() + 40));
+        let (send, receive) = mpsc::channel();
+        let worker_state = shared.clone();
+        let worker = std::thread::spawn(move || {
+            while let Some(reminder) =
+                wait_for_reminder(&worker_state.0, &worker_state.1, &worker_state.2)
+            {
+                send.send(reminder.ends_at).unwrap();
+            }
+        });
+        receive
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(receive.try_recv().is_err());
+        {
+            let _guard = shared.0.lock().unwrap();
+            shared.2.store(true, Ordering::SeqCst);
+            shared.1.notify_all();
+        }
+        worker.join().unwrap();
+    }
+    fn running_reminder(end: u64) -> State {
+        State {
+            ends_at: Some(end),
+            session_id: Some("session-a".into()),
+            ..State::default()
+        }
+    }
+    #[test]
+    fn reminders_fire_once_even_when_the_frontend_checkpoint_arrives_at_the_deadline() {
+        let state = running_reminder(1000);
+        let mut clock = ReminderClock { active: None };
+        clock.update(&state);
+        assert!(clock.due(999).is_none());
+        assert!(clock.due(1000).unwrap().focus);
+        clock.update(&state);
+        assert!(clock.due(1100).is_none());
+        let mut rest = running_reminder(2000);
+        rest.mode = "short".into();
+        rest.session_id = Some("rest-a".into());
+        clock.update(&rest);
+        assert!(!clock.due(2000).unwrap().focus);
+        assert!(clock.due(2500).is_none());
+    }
+    #[test]
+    fn reminder_pause_resume_and_settings_changes_do_not_leak_old_alerts() {
+        let mut state = running_reminder(1000);
+        let mut clock = ReminderClock { active: None };
+        clock.update(&state);
+        state.ends_at = None;
+        clock.update(&state);
+        assert!(clock.due(1000).is_none());
+        state.ends_at = Some(2000);
+        state.settings.sound = false;
+        state.settings.notification = false;
+        clock.update(&state);
+        assert!(clock.due(1500).is_none());
+        let alert = clock.due(2000).unwrap();
+        assert!(!alert.sound);
+    }
+    #[test]
+    fn an_elapsed_reminder_is_claimed_before_frontend_completion_clears_the_session() {
+        let mut clock = ReminderClock { active: None };
+        clock.update(&running_reminder(1000));
+        let alert = clock.due(1100);
+        clock.update(&State::default());
+        assert!(alert.is_some());
+        assert!(clock.due(1200).is_none());
+    }
     #[test]
     fn exit_pauses_without_counting_unfinished_session() {
         let mut s = State {

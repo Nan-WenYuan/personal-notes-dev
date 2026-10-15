@@ -12,6 +12,9 @@ describe("window routes", () => {
       noteId: "note-1",
     });
     expect(routeFromSearch("?view=unknown")).toEqual({ view: "main" });
+    expect(routeFromSearch("?view=pomodoro-desktop&noteId=ignored")).toEqual({
+      view: "pomodoro-desktop",
+    });
   });
 
   it("builds app urls for dynamic windows", () => {
