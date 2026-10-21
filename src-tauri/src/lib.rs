@@ -1,5 +1,7 @@
 mod books;
 pub mod desktop;
+#[cfg(all(test, target_os = "windows", feature = "desktop-verification"))]
+mod image_verification;
 pub mod json_io;
 pub mod locales;
 mod pomodoro;
@@ -377,10 +379,17 @@ async fn images_save_from_url(note_id: String, url: String) -> Result<String, Ap
 }
 
 #[tauri::command]
-fn images_get_base_dir(note_id: Option<String>) -> Result<String, AppError> {
+fn images_get_base_dir(app: AppHandle, note_id: Option<String>) -> Result<String, AppError> {
     let store = default_store()?;
     let base = match note_id {
-        Some(id) => store.image_base_dir(&id)?,
+        Some(id) => {
+            let base = store.image_base_dir(&id)?;
+            // Attachments now live beside the note, outside the legacy data/images scope.
+            // Register the note's own directory even before its first image is pasted.
+            app.asset_protocol_scope()
+                .allow_directory(store.images_dir(&id), true)?;
+            base
+        }
         None => store.data_dir().join("notes"),
     };
     base.to_str().map(str::to_string).ok_or_else(|| AppError {
