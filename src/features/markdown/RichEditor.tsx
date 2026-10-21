@@ -24,6 +24,7 @@ interface Props {
   disabled?: boolean;
   fontSize?: number;
   compactToolbar?: boolean;
+  toolbarHost?: HTMLElement | null;
   editorRef?: Ref<RichEditorHandle>;
   onError(message: string): void;
 }
@@ -39,6 +40,7 @@ const extensions: Record<string, string> = {
 export function RichEditor(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const instance = useRef<Vditor | null>(null);
+  const toolbarRef = useRef<HTMLElement | null>(null);
   const latest = useRef(props);
   latest.current = props;
   const lastValue = useRef(props.content);
@@ -53,11 +55,11 @@ export function RichEditor(props: Props) {
         syncInput();
       },
       undo: () => {
-        host.current?.querySelector<HTMLButtonElement>('[data-type="undo"]')?.click();
+        toolbarRef.current?.querySelector<HTMLButtonElement>('[data-type="undo"]')?.click();
         syncInput();
       },
       redo: () => {
-        host.current?.querySelector<HTMLButtonElement>('[data-type="redo"]')?.click();
+        toolbarRef.current?.querySelector<HTMLButtonElement>('[data-type="redo"]')?.click();
         syncInput();
       },
     }),
@@ -124,6 +126,7 @@ export function RichEditor(props: Props) {
             return;
           }
           instance.current = editor;
+          toolbarRef.current = mount.querySelector<HTMLElement>(".vditor-toolbar");
           editor.setValue(latest.current.content, true);
           lastValue.current = latest.current.content;
           if (latest.current.disabled) editor.disabled();
@@ -163,6 +166,11 @@ export function RichEditor(props: Props) {
     });
     return () => {
       disposed = true;
+      // Return the native toolbar before destroying its editor, including note/mode switches.
+      if (toolbarRef.current && !mount.contains(toolbarRef.current)) {
+        mount.prepend(toolbarRef.current);
+      }
+      toolbarRef.current = null;
       if (editor && instance.current === editor) {
         editor.destroy();
         instance.current = null;
@@ -170,6 +178,28 @@ export function RichEditor(props: Props) {
       mount.remove();
     };
   }, [props.imageBaseDir]);
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    const destination = props.toolbarHost;
+    if (!ready || !toolbar || !destination) return;
+    const originalParent = toolbar.parentElement;
+    const originalNext = toolbar.nextSibling;
+    const sync = () => syncInput();
+    destination.append(toolbar);
+    toolbar.addEventListener("click", sync);
+    return () => {
+      toolbar.removeEventListener("click", sync);
+      if (toolbar.parentElement === destination && originalParent?.isConnected) {
+        originalParent.insertBefore(
+          toolbar,
+          originalNext?.parentNode === originalParent ? originalNext : null,
+        );
+      } else if (toolbar.parentElement === destination) {
+        toolbar.remove();
+      }
+    };
+  }, [ready, props.toolbarHost]);
 
   useEffect(() => {
     const editor = instance.current;
@@ -220,7 +250,7 @@ export function RichEditor(props: Props) {
     caret.collapse(false);
     selection!.removeAllRanges();
     selection!.addRange(caret);
-    host.current?.querySelector<HTMLButtonElement>('[data-type="check"]')?.click();
+    toolbarRef.current?.querySelector<HTMLButtonElement>('[data-type="check"]')?.click();
     syncInput();
   };
   useEffect(() => {

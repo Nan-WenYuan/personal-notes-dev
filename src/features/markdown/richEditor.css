@@ -1,4 +1,5 @@
-.rich-editor .vditor {
+.rich-editor .vditor,
+.rich-editor-toolbar-host {
   --border-color: var(--color-paper-deep);
   --panel-background-color: var(--color-cloud);
   --toolbar-background-color: transparent;
@@ -30,6 +31,21 @@
 .rich-editor .vditor-toolbar__item {
   float: none;
   padding: 0;
+}
+.main-editor-actions > :last-child {
+  flex-shrink: 0;
+}
+.rich-editor-toolbar-host .vditor-toolbar {
+  padding: 0 !important;
+  position: relative;
+  z-index: 2;
+}
+.rich-editor-toolbar-host .vditor-toolbar__item:has(> [data-type="undo"]),
+.rich-editor-toolbar-host .vditor-toolbar__item:has(> [data-type="redo"]) {
+  display: none;
+}
+.rich-editor-toolbar-host .vditor-hint {
+  z-index: 5;
 }
 .rich-editor .vditor-toolbar__item .vditor-tooltipped {
   width: 24px;

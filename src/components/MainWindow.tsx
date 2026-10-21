@@ -520,6 +520,7 @@ export function MainWindow({
   const { popupRef: categoryMenuRef, popupPosition: categoryMenuPosition } =
     useViewportPopupPosition(categoryMenu);
   const richEditorRef = useRef<RichEditorHandle>(null);
+  const [richToolbarHost, setRichToolbarHost] = useState<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const windowLabelRef = useRef("main");
   const previewScrollRef = useRef<HTMLDivElement>(null);
@@ -3563,8 +3564,8 @@ export function MainWindow({
               />
             )}
             {pomodoroOpen && <PomodoroBoard timer={pomodoro} />}
-            <div className="flex items-center justify-between px-4 h-10 border-b border-paper-deep/20 shrink-0 bg-paper/20">
-              <div className="flex items-center gap-1">
+            <div className="main-editor-actions relative z-[2] flex items-center gap-2 px-4 min-h-10 py-1 border-b border-paper-deep/20 shrink-0 bg-paper/20">
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                   className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
@@ -3685,6 +3686,92 @@ export function MainWindow({
                 </button>
               </div>
 
+              <div className="main-editor-formatting flex-1 min-w-0">
+                <div
+                  ref={setRichToolbarHost}
+                  className="rich-editor rich-editor-toolbar-host"
+                  style={{ display: viewMode === "wysiwyg" ? undefined : "none" }}
+                />
+                {(viewMode === "edit" || viewMode === "split") && (
+                  <div className="editor-toolbar flex flex-wrap items-center gap-0.5">
+                    {toolbarButtons
+                      .filter((button) => button.action !== "undo" && button.action !== "redo")
+                      .map((button) => (
+                        <button
+                          key={button.label}
+                          title={button.title}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={async () => {
+                            if (button.action === "upload") {
+                              const textarea = contentRef.current;
+                              const noteId = selectedIdRef.current;
+                              const originalValue = textarea?.value;
+                              const start = textarea?.selectionStart ?? 0;
+                              const end = textarea?.selectionEnd ?? start;
+                              try {
+                                const paths = await open({
+                                  multiple: true,
+                                  filters: [
+                                    {
+                                      name: "图片",
+                                      extensions: [
+                                        "png",
+                                        "jpg",
+                                        "jpeg",
+                                        "gif",
+                                        "webp",
+                                        "bmp",
+                                        "svg",
+                                      ],
+                                    },
+                                  ],
+                                });
+                                if (!paths || !noteId || selectedIdRef.current !== noteId) return;
+                                const id = await ensureNoteSaved();
+                                if (!id) return;
+                                const links = [];
+                                for (const path of Array.isArray(paths) ? paths : [paths])
+                                  links.push(await saveImageFromPath(id, path));
+                                if (
+                                  selectedIdRef.current !== noteId ||
+                                  contentRef.current !== textarea ||
+                                  !textarea
+                                )
+                                  return;
+                                textarea.focus();
+                                if (textarea.value !== originalValue) {
+                                  throw new Error("图片处理期间正文已变化，请重新选择位置插入");
+                                }
+                                textarea.setSelectionRange(start, end);
+                                insertTextAtCursor(
+                                  textarea,
+                                  setContent,
+                                  links.map((path) => `![](${path})`).join("\n") + "\n",
+                                );
+                                markDirty();
+                              } catch (error) {
+                                showToast(getErrorMessage(error));
+                              }
+                              return;
+                            }
+                            if (contentRef.current) {
+                              applyFormat(
+                                contentRef.current,
+                                button.action,
+                                t,
+                                setContent,
+                                markDirty,
+                              );
+                            }
+                          }}
+                          className={`w-6 h-6 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer ${button.style}`}
+                        >
+                          {button.label}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
               <SlidingButtonGroup
                 options={viewModeOptions}
                 value={viewMode}
@@ -3818,6 +3905,7 @@ export function MainWindow({
                     <RichEditor
                       key={selectedId ?? "empty"}
                       editorRef={richEditorRef}
+                      toolbarHost={richToolbarHost}
                       content={content}
                       onChange={(value) => {
                         setContent(value);
@@ -3835,91 +3923,7 @@ export function MainWindow({
                       className="flex flex-col min-h-0 shrink-0"
                       style={{ width: viewMode === "split" ? `${splitRatio * 100}%` : "100%" }}
                     >
-                      <div className="editor-toolbar flex flex-wrap items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
-                        {toolbarButtons.map((button) => (
-                          <button
-                            key={button.label}
-                            title={button.title}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={async () => {
-                              if (button.action === "undo") {
-                                handleUndo();
-                                return;
-                              }
-                              if (button.action === "redo") {
-                                handleRedo();
-                                return;
-                              }
-                              if (button.action === "upload") {
-                                const textarea = contentRef.current;
-                                const noteId = selectedIdRef.current;
-                                const originalValue = textarea?.value;
-                                const start = textarea?.selectionStart ?? 0;
-                                const end = textarea?.selectionEnd ?? start;
-                                try {
-                                  const paths = await open({
-                                    multiple: true,
-                                    filters: [
-                                      {
-                                        name: "图片",
-                                        extensions: [
-                                          "png",
-                                          "jpg",
-                                          "jpeg",
-                                          "gif",
-                                          "webp",
-                                          "bmp",
-                                          "svg",
-                                        ],
-                                      },
-                                    ],
-                                  });
-                                  if (!paths || !noteId || selectedIdRef.current !== noteId) return;
-                                  const id = await ensureNoteSaved();
-                                  if (!id) return;
-                                  const links = [];
-                                  for (const path of Array.isArray(paths) ? paths : [paths])
-                                    links.push(await saveImageFromPath(id, path));
-                                  if (
-                                    selectedIdRef.current !== noteId ||
-                                    contentRef.current !== textarea ||
-                                    !textarea
-                                  )
-                                    return;
-                                  textarea.focus();
-                                  if (textarea.value !== originalValue) {
-                                    throw new Error("图片处理期间正文已变化，请重新选择位置插入");
-                                  }
-                                  textarea.setSelectionRange(start, end);
-                                  insertTextAtCursor(
-                                    textarea,
-                                    setContent,
-                                    links.map((path) => `![](${path})`).join("\n") + "\n",
-                                  );
-                                  markDirty();
-                                } catch (error) {
-                                  showToast(getErrorMessage(error));
-                                }
-                                return;
-                              }
-                              if (contentRef.current) {
-                                applyFormat(
-                                  contentRef.current,
-                                  button.action,
-                                  t,
-                                  setContent,
-                                  markDirty,
-                                );
-                              }
-                            }}
-                            className={`w-6 h-6 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer ${button.style}`}
-                          >
-                            {button.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex-1 overflow-hidden px-5 pb-4">
+                      <div className="flex-1 overflow-hidden px-5 pt-2 pb-4">
                         <textarea
                           ref={contentRef}
                           data-tab-indent="true"
