@@ -377,10 +377,17 @@ export function ProjectList({
                       dateTime={new Date(p.updatedAt).toISOString()}
                       title={new Date(p.updatedAt).toLocaleString()}
                     >
-                      {new Date(p.updatedAt).toLocaleDateString("zh-CN", {
-                        month: "2-digit",
-                        day: "2-digit",
-                      })}
+                      {new Date(p.updatedAt)
+                        .toLocaleString("zh-CN", {
+                          year: "numeric",
+                          month: "2-digit",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                          hourCycle: "h23",
+                        })
+                        .replace(/\//g, "-")}
                     </time>
                   </td>
                   <td>

@@ -84,7 +84,7 @@
 }
 .project-list table {
   width: 100%;
-  min-width: 510px;
+  min-width: 740px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
@@ -100,17 +100,26 @@
   background: var(--color-cloud);
 }
 .project-list th:first-child {
-  width: 38%;
+  width: auto;
 }
 .project-list th:nth-child(2) {
-  width: 18%;
+  width: 100px;
 }
-.project-list th:nth-child(3),
+.project-list th:nth-child(3) {
+  width: 90px;
+}
 .project-list th:nth-child(4) {
-  width: 10%;
+  width: 70px;
+}
+.project-list th:nth-child(5) {
+  width: 180px;
+}
+.project-list td time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .project-list th:last-child {
-  width: 72px;
+  width: 52px;
 }
 .project-list td,
 .project-list th {
