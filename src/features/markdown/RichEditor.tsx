@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useImperativeHandle } from "react";
 import type { Ref } from "react";
+import { createPortal } from "react-dom";
 import Vditor from "vditor";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { saveImage, saveImageFromPath } from "../images/api";
-import { createRichToolbar } from "./toolbarAppearance";
+import { createRichToolbar, editorTools } from "./toolbarAppearance";
 import { captureInsertionPosition, restoreInsertionPosition } from "./insertionPosition";
 import "vditor/dist/index.css";
 import "./richEditor.css";
@@ -362,6 +363,15 @@ export function RichEditor(props: Props) {
       }}
     >
       <div ref={host} className="h-full" />
+      {ready &&
+        editorTools.map(({ name, icon: Icon }) => {
+          const target = toolbarRef.current?.querySelector<HTMLElement>(
+            `[data-editor-icon="${name}"]`,
+          );
+          return target
+            ? createPortal(<Icon size={14} strokeWidth={1.7} aria-hidden="true" />, target, name)
+            : null;
+        })}
       {!ready && <span className="text-ink-ghost text-xs">正在加载编辑器……</span>}
     </div>
   );

@@ -3695,8 +3695,9 @@ export function MainWindow({
                           .filter((button) => button.action !== "undo" && button.action !== "redo")
                           .map((button) => (
                             <button
-                              key={button.label}
+                              key={button.name}
                               title={button.title}
+                              aria-label={button.title}
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={async () => {
                                 if (button.action === "upload") {
@@ -3762,9 +3763,9 @@ export function MainWindow({
                                   );
                                 }
                               }}
-                              className={`w-6 h-6 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer ${button.style}`}
+                              className="w-6 h-6 flex items-center justify-center rounded text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
                             >
-                              {button.label}
+                              <button.icon size={14} strokeWidth={1.7} aria-hidden="true" />
                             </button>
                           ))}
                       </div>
