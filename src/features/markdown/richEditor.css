@@ -4,11 +4,11 @@
   --toolbar-background-color: transparent;
   --textarea-background-color: transparent;
   --textarea-text-color: var(--color-ink-soft);
-  --toolbar-icon-color: var(--color-ink-ghost);
+  --toolbar-icon-color: var(--color-ink-faint);
   --toolbar-icon-hover-color: var(--color-bamboo);
   --second-color: var(--color-ink-ghost);
   --toolbar-height: 24px;
-  --panel-shadow: 0 4px 16px rgb(26 26 24 / 8%);
+  --panel-shadow: 0 4px 16px var(--color-shadow-deep);
   --hover-background-color: var(--color-paper-warm);
   --heading-border-color: var(--color-paper-deep);
   --code-background-color: var(--color-paper-warm);

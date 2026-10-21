@@ -3242,6 +3242,16 @@ export function MainWindow({
                       <div
                         key={group.category || "__uncategorized__"}
                         data-note-drop-category={group.category}
+                        data-sidebar-kind={
+                          group.category === "Agent知识库"
+                            ? "knowledge"
+                            : group.category === "便签"
+                              ? "sticky"
+                              : group.category === ""
+                                ? "uncategorized"
+                                : "folder"
+                        }
+                        data-sidebar-drag-over={dragOverCategory === group.category || undefined}
                         data-default-category-boundary={
                           group.category === "" &&
                           categoryGroups.some(

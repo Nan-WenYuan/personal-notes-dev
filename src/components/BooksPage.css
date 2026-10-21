@@ -1,4 +1,7 @@
 .books-page {
+  --color-bamboo: var(--color-purple);
+  --color-bamboo-light: var(--color-purple);
+  --color-bamboo-mist: color-mix(in srgb, var(--color-purple) 10%, var(--color-cloud));
   position: absolute;
   inset: 0;
   z-index: 12;
@@ -190,7 +193,7 @@
   opacity: 0.45;
 }
 .book-remove:hover {
-  color: #c86660;
+  color: var(--color-danger);
   opacity: 1;
 }
 .book-empty {
@@ -253,7 +256,7 @@
 .book-error {
   padding: 7px 10px;
   background: var(--color-paper);
-  color: #b55b50;
+  color: var(--color-danger);
   font-size: 12px;
   flex-shrink: 0;
   max-height: 100px;

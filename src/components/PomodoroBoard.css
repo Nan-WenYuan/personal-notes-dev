@@ -1,5 +1,5 @@
 .pomodoro-board {
-  --pomodoro: #cf7865;
+  --pomodoro: var(--color-danger);
   display: grid;
   grid-template-columns: minmax(285px, 0.9fr) minmax(340px, 1.1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -10,7 +10,7 @@
   font-family: var(--font-body);
 }
 [data-theme="dark"] .pomodoro-board {
-  --pomodoro: #ef9b87;
+  --pomodoro: var(--color-danger);
 }
 .pomodoro-board > header {
   grid-column: 1 / -1;
@@ -326,18 +326,18 @@
   font-size: 12px;
 }
 .pomodoro-entry {
-  color: #bb614e;
-  border-color: #cd735f55;
-  background: #cd735f20;
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 34%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
 }
 .pomodoro-entry:hover,
 .pomodoro-entry[aria-pressed="true"] {
-  background: #cd735f35;
+  background: color-mix(in srgb, var(--color-danger) 21%, transparent);
 }
 [data-theme="dark"] .pomodoro-entry {
-  color: #f2a28e;
-  border-color: #db836555;
-  background: #d7755b25;
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 34%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
 }
 @media (max-width: 1000px) {
   .pomodoro-board {
@@ -627,5 +627,5 @@
 .pomodoro-duration-presets button[aria-pressed="true"] {
   color: var(--pomodoro);
   border-color: var(--pomodoro);
-  background: #cf786520;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
 }

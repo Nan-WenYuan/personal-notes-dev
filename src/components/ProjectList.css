@@ -152,12 +152,12 @@
   color: var(--color-bamboo);
 }
 .project-status.maintenance {
-  background: #648fc41a;
-  color: #648fc4;
+  background: color-mix(in srgb, var(--color-info) 10%, transparent);
+  color: var(--color-info);
 }
 .project-status.planned {
-  background: #c298461a;
-  color: #ad863c;
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  color: var(--color-warning);
 }
 .project-edit {
   display: flex;
@@ -227,7 +227,7 @@
   background: var(--color-bamboo-glow);
 }
 .project-inline-error {
-  color: #cb6868;
+  color: var(--color-danger);
   font-size: 12px;
   padding: 5px 0;
   overflow-wrap: anywhere;
@@ -579,10 +579,10 @@
   white-space: nowrap;
 }
 .project-requirement.stage-developing .project-requirement-name > svg {
-  color: #648fc4;
+  color: var(--color-info);
 }
 .project-requirement.stage-done .project-requirement-name > svg {
-  color: var(--color-bamboo);
+  color: var(--color-success);
 }
 .project-requirement-rename {
   flex-shrink: 0;
@@ -616,16 +616,16 @@
   cursor: pointer;
 }
 .project-stage-select.planned {
-  background: #c298461a;
-  color: #ad863c;
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  color: var(--color-warning);
 }
 .project-stage-select.developing {
-  background: #648fc41a;
-  color: #648fc4;
+  background: color-mix(in srgb, var(--color-info) 10%, transparent);
+  color: var(--color-info);
 }
 .project-stage-select.done {
-  background: var(--color-bamboo-mist);
-  color: var(--color-bamboo);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+  color: var(--color-success);
 }
 .project-stage-select option {
   color: var(--color-ink);
@@ -659,7 +659,7 @@
 }
 .project-requirement-delete:hover,
 .project-requirement-delete:focus-visible {
-  color: #cb6868;
+  color: var(--color-danger);
   opacity: 1;
 }
 .project-task-undo {
@@ -750,13 +750,13 @@
   color: var(--color-ink-faint);
 }
 .project-stage-column[data-requirement-stage="developing"] > header {
-  color: #648fc4;
+  color: var(--color-info);
 }
 .project-stage-column[data-requirement-stage="planned"] > header {
-  color: #ad863c;
+  color: var(--color-warning);
 }
 .project-stage-column[data-requirement-stage="done"] > header {
-  color: var(--color-bamboo);
+  color: var(--color-success);
 }
 .project-stage-items {
   padding: 5px;

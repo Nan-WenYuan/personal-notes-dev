@@ -25,22 +25,32 @@
 }
 
 @theme {
-  --color-paper: #f6f3ec;
-  --color-paper-warm: #f0ebe0;
-  --color-paper-deep: #e8e1d3;
-  --color-ink: #1a1a18;
-  --color-ink-soft: #3d3d38;
-  --color-ink-faint: #8a8a80;
-  --color-ink-ghost: #b8b8ae;
-  --color-bamboo: #2d5a3d;
-  --color-bamboo-light: #3a7a52;
-  --color-bamboo-mist: #e8f0eb;
-  --color-bamboo-glow: #d4e8da;
-  --color-stone: #6b6b62;
-  --color-cloud: #ffffff;
-  --color-shadow: rgba(26, 26, 24, 0.06);
-  --color-shadow-deep: rgba(26, 26, 24, 0.12);
-  --color-danger-bg: #fef2f2;
+  /* One Light companion to One Dark Pro; existing semantic tokens stay stable. */
+  --color-paper: #f0f0f2;
+  --color-paper-warm: #eaeaee;
+  --color-paper-deep: #d8dae0;
+  --color-ink: #383a42;
+  --color-ink-soft: #4b4e57;
+  --color-ink-faint: #606570;
+  --color-ink-ghost: #6e7481;
+  --color-bamboo: #3569d4;
+  --color-bamboo-light: #285fc7;
+  --color-bamboo-mist: #e6edfd;
+  --color-bamboo-glow: #d6e3fc;
+  --color-stone: #696c77;
+  --color-cloud: #fafafa;
+  --color-shadow: rgb(56 58 66 / 7%);
+  --color-shadow-deep: rgb(56 58 66 / 16%);
+  --color-danger: #c74e4e;
+  --color-danger-bg: #fbe8e9;
+  --color-warning: #916700;
+  --color-success: #3d7b3a;
+  --color-info: #3569d4;
+  --color-cyan: #087f8c;
+  --color-purple: #a626a4;
+  --color-orange: #a26422;
+  --color-selection: #d6e3fc;
+  --color-caret: #4078f2;
 
   --font-display:
     "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
@@ -55,25 +65,47 @@
 :root {
   --app-window-radius: 14px;
   --app-surface-radius: 14px;
+  color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --color-paper: #222120;
-  --color-paper-warm: #2c2a27;
-  --color-paper-deep: #3c3935;
-  --color-ink: #e5e1da;
-  --color-ink-soft: #b5b1a8;
-  --color-ink-faint: #928f87;
-  --color-ink-ghost: #706d67;
-  --color-bamboo: #4faa70;
-  --color-bamboo-light: #5fc085;
-  --color-bamboo-mist: #1c2e22;
-  --color-bamboo-glow: #243a2c;
-  --color-stone: #8a8880;
-  --color-cloud: #1a1917;
+  --color-paper: #21252b;
+  --color-paper-warm: #2c313a;
+  --color-paper-deep: #3e4452;
+  --color-ink: #d7dae0;
+  --color-ink-soft: #abb2bf;
+  --color-ink-faint: #a0a8b7;
+  --color-ink-ghost: #8e97a7;
+  --color-bamboo: #61afef;
+  --color-bamboo-light: #8fc7f5;
+  --color-bamboo-mist: #2c3546;
+  --color-bamboo-glow: #344761;
+  --color-stone: #9da5b4;
+  --color-cloud: #282c34;
   --color-shadow: rgba(0, 0, 0, 0.3);
   --color-shadow-deep: rgba(0, 0, 0, 0.5);
-  --color-danger-bg: rgba(220, 38, 38, 0.15);
+  --color-danger: #e06c75;
+  --color-danger-bg: #3e2d35;
+  --color-warning: #e5c07b;
+  --color-success: #98c379;
+  --color-info: #61afef;
+  --color-cyan: #56b6c2;
+  --color-purple: #c678dd;
+  --color-orange: #d19a66;
+  --color-selection: #3e4b63;
+  --color-caret: #528bff;
+  color-scheme: dark;
+}
+
+::selection {
+  color: var(--color-ink);
+  background: var(--color-selection);
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: var(--color-caret);
 }
 
 /* Theme transition — applied briefly during theme switch for a uniform crossfade */
@@ -672,116 +704,84 @@ input::placeholder {
   flex-shrink: 0;
 }
 
-/* Note — blue-gray */
+/* Alert hues share the same semantic palette in both modes. */
 .markdown-alert-note {
-  border-color: #4a8db7;
-  background: rgba(74, 141, 183, 0.06);
+  --alert-color: var(--color-info);
 }
-.markdown-alert-note .markdown-alert-title {
-  color: #4a8db7;
-}
-
-/* Tip — sage green */
 .markdown-alert-tip {
-  border-color: #3a7a52;
-  background: rgba(58, 122, 82, 0.06);
+  --alert-color: var(--color-success);
 }
-.markdown-alert-tip .markdown-alert-title {
-  color: #3a7a52;
-}
-
-/* Important — muted purple */
 .markdown-alert-important {
-  border-color: #8b6bb5;
-  background: rgba(139, 107, 181, 0.06);
+  --alert-color: var(--color-purple);
 }
-.markdown-alert-important .markdown-alert-title {
-  color: #8b6bb5;
-}
-
-/* Warning — warm amber */
 .markdown-alert-warning {
-  border-color: #b8860b;
-  background: rgba(184, 134, 11, 0.06);
+  --alert-color: var(--color-warning);
 }
-.markdown-alert-warning .markdown-alert-title {
-  color: #b8860b;
-}
-
-/* Caution — terracotta red */
 .markdown-alert-caution {
-  border-color: #c45c4a;
-  background: rgba(196, 92, 74, 0.06);
+  --alert-color: var(--color-danger);
 }
-.markdown-alert-caution .markdown-alert-title {
-  color: #c45c4a;
+.markdown-alert {
+  border-color: var(--alert-color);
+  background: color-mix(in srgb, var(--alert-color) 8%, transparent);
 }
-
-/* Dark theme overrides */
-:root[data-theme="dark"] .markdown-alert-note {
-  border-color: #6cb6e8;
-  background: rgba(108, 182, 232, 0.08);
+.markdown-alert .markdown-alert-title {
+  color: var(--alert-color);
 }
-:root[data-theme="dark"] .markdown-alert-note .markdown-alert-title {
-  color: #6cb6e8;
-}
-
-:root[data-theme="dark"] .markdown-alert-tip {
-  border-color: #5fc085;
-  background: rgba(95, 192, 133, 0.08);
-}
-:root[data-theme="dark"] .markdown-alert-tip .markdown-alert-title {
-  color: #5fc085;
-}
-
-:root[data-theme="dark"] .markdown-alert-important {
-  border-color: #b08de0;
-  background: rgba(176, 141, 224, 0.08);
-}
-:root[data-theme="dark"] .markdown-alert-important .markdown-alert-title {
-  color: #b08de0;
-}
-
-:root[data-theme="dark"] .markdown-alert-warning {
-  border-color: #d4a948;
-  background: rgba(212, 169, 72, 0.08);
-}
-:root[data-theme="dark"] .markdown-alert-warning .markdown-alert-title {
-  color: #d4a948;
-}
-
-:root[data-theme="dark"] .markdown-alert-caution {
-  border-color: #e87462;
-  background: rgba(232, 116, 98, 0.08);
-}
-:root[data-theme="dark"] .markdown-alert-caution .markdown-alert-title {
-  color: #e87462;
-}
-
 .quadrant-entry-ink {
-  color: #0e7490;
+  color: var(--color-cyan);
 }
 [data-theme="dark"] .quadrant-entry-ink {
-  color: #67e8f9;
+  color: var(--color-cyan);
 }
 
-.agent-knowledge-category > .group\/cat {
-  background: rgb(202 139 65 / 12%) !important;
-  border-color: rgb(202 139 65 / 30%) !important;
+/* Navigation colors identify the type; selection still uses the main accent. */
+[data-navigation-kind="projects"] {
+  --sidebar-accent: var(--color-info);
 }
-.agent-knowledge-category > .group\/cat svg,
-.agent-knowledge-category > .group\/cat span {
-  color: #b9772f;
+[data-navigation-kind="books"] {
+  --sidebar-accent: var(--color-purple);
 }
-.agent-knowledge-category .category-body-inner {
-  border-color: rgb(202 139 65 / 22%) !important;
-  background: rgb(202 139 65 / 4%) !important;
+[data-sidebar-kind="knowledge"] {
+  --sidebar-accent: var(--color-orange);
 }
-[data-theme="dark"] .agent-knowledge-category > .group\/cat svg,
-[data-theme="dark"] .agent-knowledge-category > .group\/cat span {
-  color: #e4b474;
+[data-sidebar-kind="sticky"] {
+  --sidebar-accent: var(--color-success);
+}
+[data-sidebar-kind="uncategorized"],
+[data-sidebar-kind="folder"] {
+  --sidebar-accent: var(--color-ink-faint);
 }
 
+.sidebar-type-entry {
+  color: var(--sidebar-accent);
+  background: color-mix(in srgb, var(--sidebar-accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--sidebar-accent) 24%, transparent);
+  transition:
+    background-color 150ms,
+    border-color 150ms;
+}
+.sidebar-type-entry:hover,
+.sidebar-type-entry[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--sidebar-accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--sidebar-accent) 40%, transparent);
+}
+[data-sidebar-kind] > .group\/cat {
+  background: color-mix(in srgb, var(--sidebar-accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--sidebar-accent) 24%, transparent);
+  --tw-ring-color: color-mix(in srgb, var(--sidebar-accent) 20%, transparent);
+}
+[data-sidebar-kind] > .group\/cat:hover,
+[data-sidebar-drag-over="true"] > .group\/cat {
+  background: color-mix(in srgb, var(--sidebar-accent) 12%, transparent);
+}
+[data-sidebar-kind] > .group\/cat > svg,
+[data-sidebar-kind] > .group\/cat > span {
+  color: var(--sidebar-accent);
+}
+[data-sidebar-kind] .category-body-inner {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 18%, transparent);
+  background: color-mix(in srgb, var(--sidebar-accent) 2%, transparent);
+}
 [data-note-id] {
   border: 1px solid color-mix(in srgb, var(--color-paper-deep) 65%, transparent);
   margin-top: 4px;
@@ -801,8 +801,8 @@ input::placeholder {
 }
 
 [data-note-id][data-multi-selected="true"] {
-  background: rgb(85 147 180 / 25%) !important;
-  border-color: rgb(85 147 180 / 65%) !important;
+  background: var(--color-selection) !important;
+  border-color: var(--color-bamboo) !important;
 }
 
 [data-note-id]:focus {

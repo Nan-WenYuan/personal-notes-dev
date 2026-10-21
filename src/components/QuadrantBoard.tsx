@@ -21,10 +21,10 @@ interface Task {
   completedAt?: number;
 }
 const quadrants = [
-  { title: "重要且紧急", hint: "立即处理", color: "#cb6868" },
-  { title: "重要不紧急", hint: "计划安排", color: "#c29846" },
-  { title: "不重要但紧急", hint: "尽快处理或委托", color: "#648fc4" },
-  { title: "不重要不紧急", hint: "有空再做", color: "#719781" },
+  { title: "重要且紧急", hint: "立即处理", color: "var(--color-danger)" },
+  { title: "重要不紧急", hint: "计划安排", color: "var(--color-warning)" },
+  { title: "不重要但紧急", hint: "尽快处理或委托", color: "var(--color-info)" },
+  { title: "不重要不紧急", hint: "有空再做", color: "var(--color-success)" },
 ];
 
 export function QuadrantBoard({

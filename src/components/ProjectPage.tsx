@@ -27,9 +27,9 @@ import {
 } from "../features/notes/projectRequirements";
 const stages = [
   { value: "backlog", label: "待梳理", color: "var(--color-ink-soft)", icon: Circle },
-  { value: "planned", label: "排期中", color: "#ad863c", icon: CalendarDays },
-  { value: "developing", label: "开发中", color: "#648fc4", icon: Code2 },
-  { value: "done", label: "已完成", color: "var(--color-bamboo)", icon: CircleCheck },
+  { value: "planned", label: "排期中", color: "var(--color-warning)", icon: CalendarDays },
+  { value: "developing", label: "开发中", color: "var(--color-info)", icon: Code2 },
+  { value: "done", label: "已完成", color: "var(--color-success)", icon: CircleCheck },
 ] as const;
 export function ProjectPage({
   project,

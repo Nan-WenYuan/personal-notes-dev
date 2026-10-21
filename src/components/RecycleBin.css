@@ -30,7 +30,7 @@
   outline-offset: 2px;
 }
 .recycle-bin .danger {
-  color: #bb665d;
+  color: var(--color-danger);
 }
 .recycle-back {
   align-self: flex-start;
@@ -194,7 +194,7 @@
 }
 .recycle-error {
   padding: 9px 12px;
-  color: #bb665d;
+  color: var(--color-danger);
   background: var(--color-paper);
   margin-bottom: 8px;
 }

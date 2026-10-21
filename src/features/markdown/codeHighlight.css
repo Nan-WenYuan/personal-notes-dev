@@ -1,16 +1,16 @@
 :root {
-  --code-keyword: #8356a2;
-  --code-string: #437952;
-  --code-number: #a36936;
-  --code-title: #37768c;
-  --code-comment: #8a8b7c;
+  --code-keyword: #a626a4;
+  --code-string: #397300;
+  --code-number: #986801;
+  --code-title: #3569d4;
+  --code-comment: #737782;
 }
 [data-theme="dark"] {
-  --code-keyword: #c6a4e0;
-  --code-string: #a5c893;
-  --code-number: #e0b480;
-  --code-title: #8fc5d4;
-  --code-comment: #959a89;
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-title: #61afef;
+  --code-comment: #8e97a7;
 }
 :is(.rich-editor, .markdown-code-block)
   :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-built_in) {

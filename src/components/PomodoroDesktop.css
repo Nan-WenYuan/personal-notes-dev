@@ -4,7 +4,7 @@
   padding: 4px;
 }
 .pomodoro-desktop-surface {
-  --desktop-accent: #cf7c6b;
+  --desktop-accent: var(--color-danger);
   height: 100%;
   overflow: hidden;
   display: flex;
@@ -20,7 +20,7 @@
   color: var(--color-ink);
 }
 :root[data-theme="dark"] .pomodoro-desktop-surface {
-  --desktop-accent: #dc9684;
+  --desktop-accent: var(--color-danger);
 }
 .pomodoro-desktop-surface.is-rest {
   --desktop-accent: var(--color-bamboo-light);
