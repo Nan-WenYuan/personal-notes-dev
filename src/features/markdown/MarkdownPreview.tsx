@@ -352,7 +352,7 @@ export function MarkdownPreview({
             loading="lazy"
             className="max-w-full rounded my-2 block cursor-zoom-in"
             style={{ ...style, width: style?.width ?? "50%" }}
-            onDoubleClick={(event) => {
+            onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
               setViewer({ src: resolvedSrc, image: findImage() });

@@ -488,17 +488,16 @@ export function RichEditor(props: Props) {
           image: noteImage ? { width: noteImage.width } : undefined,
         });
       }}
-      onDoubleClickCapture={(event) => {
-        const image = (event.target as HTMLElement).closest<HTMLImageElement>("img");
+      onClickCapture={(event) => {
+        const image = (event.target as HTMLElement).closest<HTMLImageElement>(
+          ".vditor-wysiwyg img",
+        );
         const source = image ? selectedImage(image) : undefined;
         if (image && source && instance.current) {
           event.preventDefault();
           event.stopPropagation();
           setViewImage({ src: image.src, image: source, editor: instance.current });
         }
-      }}
-      onClickCapture={(event) => {
-        if ((event.target as HTMLElement).closest(".vditor-wysiwyg img")) event.stopPropagation();
         syncInput();
       }}
       onKeyUpCapture={() => {

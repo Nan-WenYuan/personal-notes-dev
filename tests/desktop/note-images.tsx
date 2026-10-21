@@ -116,7 +116,7 @@ try {
   );
   // Exercise the actual viewer's text annotation and Save Copy button, using
   // native Tauri asset origins and IPC rather than a browser save mock.
-  resized.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  resized.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   await until(
     () =>
       !!document.querySelector(".image-viewer-original") &&
@@ -175,12 +175,19 @@ try {
   await checkImages();
   document
     .querySelector<HTMLImageElement>(".vditor-wysiwyg img")!
-    .dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   await until(() => !!document.querySelector(".image-viewer"), "viewer did not reopen");
   document
     .querySelector(".image-viewer")!
     .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   await until(() => !document.querySelector(".image-viewer"), "Escape did not close the viewer");
+  document.querySelector<HTMLImageElement>("#split-preview img")!.click();
+  await until(
+    () => !!document.querySelector(".image-viewer"),
+    "single click did not open split preview image",
+  );
+  document.querySelector<HTMLButtonElement>('[aria-label="关闭图片预览"]')!.click();
+  await until(() => !document.querySelector(".image-viewer"), "split image preview did not close");
   // Renaming and moving rewrite the attachment path; resolve and authorize the new location.
   const renamed = await invoke<Note>("notes_update", {
     id,
