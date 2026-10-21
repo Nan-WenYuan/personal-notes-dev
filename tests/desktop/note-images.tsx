@@ -6,6 +6,7 @@ import { MarkdownPreview } from "../../src/features/markdown/MarkdownPreview";
 import type { Note } from "../../src/features/notes/types";
 import "../../src/App.css";
 import { noteImages } from "../../src/features/images/imageMarkup";
+import { annotatedPng, loadImage } from "../../src/features/images/annotations";
 
 const root = createRoot(document.getElementById("root")!);
 const editorRef = createRef<RichEditorHandle>();
@@ -105,6 +106,32 @@ try {
   const original = noteImages(content)[0];
   const originalElement = document.querySelector<HTMLImageElement>(".vditor-wysiwyg img")!;
   const originalBytes = await (await fetch(originalElement.src)).arrayBuffer();
+  const penCopy = await annotatedPng(originalElement.src, [
+    {
+      type: "pen",
+      color: "#e45649",
+      size: 4,
+      points: [
+        { x: 4, y: 4 },
+        { x: 16, y: 16 },
+        { x: 28, y: 4 },
+      ],
+    },
+  ]);
+  const penUrl = URL.createObjectURL(penCopy);
+  try {
+    const penImage = await loadImage(penUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(penImage, 0, 0);
+    const pixel = context.getImageData(10, 10, 1, 1).data;
+    if (pixel[0] !== 228 || pixel[1] !== 86 || pixel[2] !== 73 || pixel[3] !== 255)
+      throw Error("freehand pen pixels did not survive PNG export");
+  } finally {
+    URL.revokeObjectURL(penUrl);
+  }
   // Exercise the actual menu: width persists, the HTML image has no code background,
   // and outside clicks dismiss it rather than leaving it over the editor.
   originalElement.dispatchEvent(

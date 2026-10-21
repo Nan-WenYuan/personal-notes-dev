@@ -5,6 +5,7 @@ export interface Point {
 export type Annotation = { color: string; size: number } & (
   | { type: "arrow" | "rectangle"; start: Point; end: Point }
   | { type: "text"; start: Point; text: string }
+  | { type: "pen"; points: Point[] }
 );
 export function imagePoint(
   client: Point,
@@ -51,7 +52,19 @@ export async function annotatedPng(src: string, annotations: readonly Annotation
     context.lineWidth = a.size;
     context.lineJoin = "round";
     context.lineCap = "round";
-    if (a.type === "text") {
+    if (a.type === "pen") {
+      const first = a.points[0];
+      if (!first) continue;
+      context.beginPath();
+      if (a.points.length === 1) {
+        context.arc(first.x, first.y, a.size / 2, 0, Math.PI * 2);
+        context.fill();
+      } else {
+        context.moveTo(first.x, first.y);
+        for (const point of a.points.slice(1)) context.lineTo(point.x, point.y);
+        context.stroke();
+      }
+    } else if (a.type === "text") {
       context.font = `${a.size * 7}px "HarmonyOS Sans SC", sans-serif`;
       context.textBaseline = "top";
       a.text

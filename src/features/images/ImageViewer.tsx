@@ -20,11 +20,12 @@ import {
   LoaderCircle,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import { annotatedPng, arrowHead, imagePoint, type Annotation, type Point } from "./annotations";
 import "./imageTools.css";
 
-type Tool = "pan" | "arrow" | "rectangle" | "text";
+type Tool = "pan" | "pen" | "arrow" | "rectangle" | "text";
 const colors = ["#e45649", "#e5a635", "#50a14f", "#4078f2", "#a626a4", "#ffffff", "#20242b"];
 export function ImageViewer({
   src,
@@ -57,6 +58,8 @@ export function ImageViewer({
   const [marks, setMarks] = useState<Annotation[]>([]);
   const [redo, setRedo] = useState<Annotation[]>([]);
   const [draft, setDraft] = useState<Annotation | null>(null);
+  const drawing = useRef<Annotation | null>(null);
+  const [penWidth, setPenWidth] = useState(2);
   const [text, setText] = useState<{ start: Point; value: string } | null>(null);
   const [scale, setScale] = useState(100);
   const [zoom, setZoom] = useState("100");
@@ -87,6 +90,7 @@ export function ImageViewer({
     setMarks(saved?.marks ?? []);
     setRedo(saved?.redo ?? []);
     setDraft(null);
+    drawing.current = null;
     setText(null);
     setError("");
     setDimensions({ width: 0, height: 0 });
@@ -332,22 +336,48 @@ export function ImageViewer({
                       return;
                     }
                     e.currentTarget.setPointerCapture(e.pointerId);
-                    setDraft({ type: tool, start, end: start, color, size });
+                    const mark: Annotation =
+                      tool === "pen"
+                        ? { type: "pen", points: [start], color, size: (size * penWidth) / 2 }
+                        : { type: tool, start, end: start, color, size };
+                    drawing.current = mark;
+                    setDraft(mark);
                   }}
                   onPointerMove={(e) => {
-                    if (draft && draft.type !== "text") setDraft({ ...draft, end: point(e) });
+                    const current = drawing.current;
+                    if (!current || current.type === "text") return;
+                    const end = point(e);
+                    if (current.type === "pen") {
+                      const last = current.points[current.points.length - 1];
+                      if (Math.hypot(last.x - end.x, last.y - end.y) < 0.5) return;
+                      drawing.current = { ...current, points: [...current.points, end] };
+                    } else drawing.current = { ...current, end };
+                    setDraft(drawing.current);
                   }}
                   onPointerUp={() => {
+                    const current = drawing.current;
                     if (
-                      draft &&
-                      draft.type !== "text" &&
-                      Math.hypot(draft.start.x - draft.end.x, draft.start.y - draft.end.y) >=
-                        size * 2
+                      current &&
+                      (current.type === "pen" ||
+                        (current.type !== "text" &&
+                          Math.hypot(
+                            current.start.x - current.end.x,
+                            current.start.y - current.end.y,
+                          ) >=
+                            size * 2))
                     )
-                      commit(draft);
+                      commit(current);
+                    drawing.current = null;
                     setDraft(null);
                   }}
-                  onPointerCancel={() => setDraft(null)}
+                  onPointerCancel={() => {
+                    drawing.current = null;
+                    setDraft(null);
+                  }}
+                  onLostPointerCapture={() => {
+                    drawing.current = null;
+                    setDraft(null);
+                  }}
                 >
                   {[...marks, ...(draft ? [draft] : [])].map((a, i) => (
                     <g
@@ -359,7 +389,21 @@ export function ImageViewer({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      {a.type === "rectangle" ? (
+                      {a.type === "pen" ? (
+                        a.points.length === 1 ? (
+                          <circle
+                            cx={a.points[0].x}
+                            cy={a.points[0].y}
+                            r={a.size / 2}
+                            fill={a.color}
+                            stroke="none"
+                          />
+                        ) : (
+                          <polyline
+                            points={a.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                          />
+                        )
+                      ) : a.type === "rectangle" ? (
                         <rect
                           x={Math.min(a.start.x, a.end.x)}
                           y={Math.min(a.start.y, a.end.y)}
@@ -450,6 +494,30 @@ export function ImageViewer({
             )}
             {onSave && (
               <>
+                {button(
+                  "自由画笔",
+                  Pencil,
+                  () => {
+                    commitText();
+                    setTool("pen");
+                  },
+                  false,
+                  tool === "pen",
+                )}
+                {tool === "pen" && (
+                  <select
+                    aria-label="画笔粗细"
+                    title="画笔粗细"
+                    className="image-pen-width"
+                    value={penWidth}
+                    onChange={(event) => setPenWidth(Number(event.target.value))}
+                    disabled={saving}
+                  >
+                    <option value={1}>细</option>
+                    <option value={2}>中</option>
+                    <option value={4}>粗</option>
+                  </select>
+                )}
                 {button(
                   "箭头标注",
                   MoveUpRight,
