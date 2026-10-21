@@ -23,7 +23,7 @@ import {
   Suspense,
   lazy,
 } from "react";
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -719,6 +719,15 @@ export function MainWindow({
     setNoteMenu(null);
     setCategoryMenu(null);
   }, [searchQuery]);
+
+  const customCategoryAccents = useMemo(() => {
+    const accents = ["danger", "info", "warning", "purple", "success", "orange", "cyan"];
+    return new Map(
+      groupNotesByCategory(notes, categories)
+        .filter((group) => !["Agent知识库", "便签", ""].includes(group.category))
+        .map((group, index) => [group.category, `var(--color-${accents[index % accents.length]})`]),
+    );
+  }, [notes, categories]);
 
   const categoryGroups = useMemo(
     () =>
@@ -3242,6 +3251,11 @@ export function MainWindow({
                       <div
                         key={group.category || "__uncategorized__"}
                         data-note-drop-category={group.category}
+                        style={
+                          {
+                            "--sidebar-accent": customCategoryAccents.get(group.category),
+                          } as CSSProperties
+                        }
                         data-sidebar-kind={
                           group.category === "Agent知识库"
                             ? "knowledge"
