@@ -93,7 +93,10 @@
       "undo": "還原（Ctrl+Z）",
       "undoLabel": "還原",
       "redo": "重做（Ctrl+Y）",
-      "redoLabel": "重做"
+      "redoLabel": "重做",
+      "noSelectionTitle": "未開啟筆記",
+      "noSelectionDescription": "選擇左側筆記，或新增一篇開始記錄。",
+      "loadingNotes": "正在載入筆記…"
     },
     "externalFile": {
       "label": "外部檔案 · {{path}}"

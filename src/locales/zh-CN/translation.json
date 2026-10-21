@@ -93,7 +93,10 @@
       "undo": "撤销（Ctrl+Z）",
       "undoLabel": "撤销",
       "redo": "重做（Ctrl+Y）",
-      "redoLabel": "重做"
+      "redoLabel": "重做",
+      "noSelectionTitle": "未打开笔记",
+      "noSelectionDescription": "选择左侧笔记，或新建一篇开始记录。",
+      "loadingNotes": "正在加载笔记…"
     },
     "externalFile": {
       "label": "外部文件 · {{path}}"

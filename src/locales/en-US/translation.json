@@ -93,7 +93,10 @@
       "undo": "Undo (Ctrl+Z)",
       "undoLabel": "Undo",
       "redo": "Redo (Ctrl+Y)",
-      "redoLabel": "Redo"
+      "redoLabel": "Redo",
+      "noSelectionTitle": "No note open",
+      "noSelectionDescription": "Select a note from the sidebar, or create one to start writing.",
+      "loadingNotes": "Loading notes…"
     },
     "externalFile": {
       "label": "External File · {{path}}"
