@@ -108,6 +108,11 @@ textarea,
   caret-color: var(--color-caret);
 }
 
+/* Keep entry fields free of an extra focus frame across all pages. */
+:root :is(input, textarea, select, [contenteditable="true"]):is(:focus, :focus-visible) {
+  outline: none;
+}
+
 /* Theme transition — applied briefly during theme switch for a uniform crossfade */
 html.theme-transition,
 html.theme-transition *,
