@@ -186,12 +186,6 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
             }))
           : [
               {
-                label: t("contextMenu.edit.cut", { defaultValue: "剪切" }),
-                shortcut: "Ctrl+X",
-                action: () => runCommand("cut"),
-                disabled: !menu.hasSelection,
-              },
-              {
                 label: t("contextMenu.edit.copy", { defaultValue: "复制" }),
                 shortcut: "Ctrl+C",
                 action: () => runCommand("copy"),
@@ -201,13 +195,6 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
                 label: t("contextMenu.edit.paste", { defaultValue: "粘贴" }),
                 shortcut: "Ctrl+V",
                 action: () => runCommand("paste"),
-                disabled: false,
-              },
-              { separator: true as const },
-              {
-                label: t("contextMenu.edit.selectAll", { defaultValue: "全选" }),
-                shortcut: "Ctrl+A",
-                action: () => runCommand("selectAll"),
                 disabled: false,
               },
             ]

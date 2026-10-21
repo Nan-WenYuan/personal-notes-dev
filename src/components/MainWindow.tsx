@@ -82,7 +82,12 @@ import {
   saveExternalFile,
   updateNote,
 } from "../features/notes/api";
-import { cleanUnusedImages, saveImageFromPath, saveImageFromUrl } from "../features/images/api";
+import {
+  cleanUnusedImages,
+  saveImage,
+  saveImageFromPath,
+  saveImageFromUrl,
+} from "../features/images/api";
 import { remoteImageUrls, replaceRemoteImages } from "../features/images/localizeMarkdown";
 import { remapNoteImageLinks } from "../features/images/noteImagePaths";
 import { QuadrantBoard } from "./QuadrantBoard";
@@ -3987,10 +3992,29 @@ export function MainWindow({
                             }`}
                           >
                             <MarkdownPreview
+                              key={selectedId}
                               content={deferredContent}
                               fontSize={settingsConfig?.fontSize ?? 14}
                               renderHtml={settingsConfig?.renderHtmlMarkdown ?? false}
                               imageBaseDir={imageBaseDir ?? undefined}
+                              onChange={(value) => {
+                                setContent(value);
+                                markDirty();
+                              }}
+                              onSaveImage={async (blob) => {
+                                const id = selectedId;
+                                if (!id || selectedIdRef.current !== id)
+                                  throw Error("笔记已切换，请重新打开图片");
+                                const url = await saveImage(
+                                  id,
+                                  new Uint8Array(await blob.arrayBuffer()),
+                                  "png",
+                                );
+                                if (selectedIdRef.current !== id)
+                                  throw Error("笔记已切换，请重新打开图片");
+                                return url;
+                              }}
+                              onError={showToast}
                             />
                           </div>
                         </div>

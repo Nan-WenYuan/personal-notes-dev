@@ -1,12 +1,14 @@
-import React, { useState } from "react";
+import React, { createRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
-import { RichEditor } from "../../src/features/markdown/RichEditor";
+import { RichEditor, type RichEditorHandle } from "../../src/features/markdown/RichEditor";
 import { MarkdownPreview } from "../../src/features/markdown/MarkdownPreview";
 import type { Note } from "../../src/features/notes/types";
 import "../../src/App.css";
+import { noteImages } from "../../src/features/images/imageMarkup";
 
 const root = createRoot(document.getElementById("root")!);
+const editorRef = createRef<RichEditorHandle>();
 let content = "";
 let failure: string | null = null;
 let revision = 0;
@@ -15,6 +17,7 @@ function Harness({ note, base }: { note: Note; base: string }) {
   return (
     <div style={{ height: 600, display: "flex", flexDirection: "column" }} data-revision={revision}>
       <RichEditor
+        editorRef={editorRef}
         content={value}
         onChange={(v) => {
           content = v;
@@ -76,6 +79,108 @@ try {
   await checkImages();
   if (!content.includes("![](") || content.includes("asset.localhost"))
     throw Error("saved image link must remain relative");
+  const original = noteImages(content)[0];
+  const originalElement = document.querySelector<HTMLImageElement>(".vditor-wysiwyg img")!;
+  const originalBytes = await (await fetch(originalElement.src)).arrayBuffer();
+  // Exercise the actual menu: width persists, the HTML image has no code background,
+  // and outside clicks dismiss it rather than leaving it over the editor.
+  originalElement.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 50, clientY: 50 }),
+  );
+  await until(() => !!document.querySelector('[role="menu"]'), "image menu did not open");
+  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find((button) => button.textContent === "50%")!
+    .click();
+  await until(() => noteImages(content)[0]?.width === 50, "image width was not saved");
+  await checkImages();
+  if (document.querySelector<HTMLImageElement>("#split-preview img")!.style.width !== "50%")
+    throw Error("split preview did not retain the image width");
+  editorRef.current!.undo();
+  await until(
+    () =>
+      noteImages(content)[0]?.url === original.url && noteImages(content)[0]?.width === undefined,
+    "image resize was not undoable",
+  );
+  editorRef.current!.redo();
+  await until(() => noteImages(content)[0]?.width === 50, "image resize was not redoable");
+  await checkImages();
+  const resized = document.querySelector<HTMLImageElement>(".vditor-wysiwyg img")!;
+  if (getComputedStyle(resized.parentElement!).backgroundColor !== "rgba(0, 0, 0, 0)")
+    throw Error("resized image must not have a block background");
+  resized.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  await until(() => !!document.querySelector('[role="menu"]'), "image menu did not reopen");
+  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  await until(
+    () => !document.querySelector('[role="menu"]'),
+    "outside click did not dismiss image menu",
+  );
+  // Exercise the actual viewer's text annotation and Save Copy button, using
+  // native Tauri asset origins and IPC rather than a browser save mock.
+  resized.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  await until(
+    () =>
+      !!document.querySelector(".image-viewer-original") &&
+      document.querySelector<HTMLImageElement>(".image-viewer-original")?.naturalWidth === 32,
+    "image viewer did not open",
+  );
+  document.querySelector<HTMLButtonElement>('[aria-label="文字标注"]')!.click();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  const drawingImage = document
+    .querySelector<HTMLImageElement>(".image-viewer-original")!
+    .getBoundingClientRect();
+  document.querySelector(".image-annotation-layer")!.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      clientX: drawingImage.left + drawingImage.width / 5,
+      clientY: drawingImage.top + drawingImage.height / 5,
+    }),
+  );
+  await until(
+    () => !!document.querySelector('[aria-label="标注文字"]'),
+    "text annotation did not start",
+  );
+  const label = document.querySelector<HTMLInputElement>('[aria-label="标注文字"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(label, "A");
+  label.dispatchEvent(new Event("input", { bubbles: true }));
+  await until(
+    () => !document.querySelector<HTMLButtonElement>(".image-save")!.disabled,
+    "text annotation did not enable saving",
+  );
+  label.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await until(
+    () => !document.querySelector('[aria-label="标注文字"]'),
+    "Enter did not commit text annotation",
+  );
+  document.querySelector<HTMLButtonElement>(".image-save")!.click();
+  await until(
+    () => !document.querySelector(".image-viewer") && noteImages(content)[0]?.url !== original.url,
+    "annotated copy was not saved by the viewer",
+  );
+  const copy = noteImages(content)[0].url;
+  if (copy === original.url) throw Error("annotation overwrote the original image");
+  const unchanged = new Uint8Array(await (await fetch(resized.src)).arrayBuffer());
+  if (
+    unchanged.length !== originalBytes.byteLength ||
+    unchanged.some((byte, i) => byte !== new Uint8Array(originalBytes)[i])
+  )
+    throw Error("original image was modified");
+  await until(
+    () =>
+      document
+        .querySelector<HTMLImageElement>(".vditor-wysiwyg img")
+        ?.src.includes(copy.split("/").pop()!) ?? false,
+    "annotated copy did not replace the image reference",
+  );
+  await checkImages();
+  document
+    .querySelector<HTMLImageElement>(".vditor-wysiwyg img")!
+    .dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  await until(() => !!document.querySelector(".image-viewer"), "viewer did not reopen");
+  document
+    .querySelector(".image-viewer")!
+    .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await until(() => !document.querySelector(".image-viewer"), "Escape did not close the viewer");
   // Renaming and moving rewrite the attachment path; resolve and authorize the new location.
   const renamed = await invoke<Note>("notes_update", {
     id,
@@ -86,7 +191,7 @@ try {
   await mount(await invoke<Note>("notes_get", { id }));
   await checkImages();
   document.getElementById("result")!.textContent =
-    "通过：真实 PNG 粘贴、编辑/预览显示、中文空格路径、重命名移动及重新打开";
+    "通过：PNG 粘贴、图片比例、透明背景、菜单关闭、原生标注导出和副本保存、重命名移动及重新打开";
   await invoke("image_verification_report", { error: null });
 } catch (error) {
   document.getElementById("result")!.textContent = String(error);

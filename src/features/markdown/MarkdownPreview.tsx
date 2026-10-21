@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { highlightCode } from "./codeHighlight";
 import "./codeHighlight.css";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,16 @@ import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
 import remarkAlerts from "./remarkAlerts";
 import { resolveMarkdownImageSrc } from "./imageSrc";
+import { ImageViewer } from "../images/ImageViewer";
+import {
+  noteImages,
+  replaceNoteImage,
+  remarkNoteImages,
+  type NoteImage,
+} from "../images/imageMarkup";
+import { NoteContextMenu, type NoteMenuState } from "../images/NoteContextMenu";
+import { copyNoteSelection } from "../images/clipboard";
+import { Scan } from "lucide-react";
 
 function HighlightedCode({ text, language }: { text: string; language: string }) {
   const [html, setHtml] = useState<string | null>(null);
@@ -96,9 +106,12 @@ interface MarkdownPreviewProps {
   fontSize?: number;
   renderHtml?: boolean;
   imageBaseDir?: string;
+  onChange?(value: string): void;
+  onSaveImage?(blob: Blob): Promise<string>;
+  onError?(message: string): void;
 }
 
-const remarkPlugins = [remarkGfm, remarkMath, remarkAlerts];
+const remarkPlugins = [remarkGfm, remarkMath, remarkAlerts, remarkNoteImages];
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "mark", "center", "font", "u", "abbr"],
@@ -310,28 +323,112 @@ export function MarkdownPreview({
   fontSize = 14,
   renderHtml = false,
   imageBaseDir,
+  onChange,
+  onSaveImage,
+  onError,
 }: MarkdownPreviewProps) {
   const { t } = useTranslation();
+  const [viewer, setViewer] = useState<{ src: string; image?: NoteImage } | null>(null);
+  const [menu, setMenu] = useState<(NoteMenuState & { src: string; noteImage?: NoteImage }) | null>(
+    null,
+  );
+  const latest = useRef({ content, onChange, onSaveImage, onError });
+  latest.current = { content, onChange, onSaveImage, onError };
+  const closeViewer = useCallback(() => setViewer(null), []);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const components = useMemo<Components>(
     () => ({
       ...staticComponents,
-      img: ({ src, alt, ...props }) => {
+      img: ({ src, alt, node, style, ...props }) => {
         const resolvedSrc = resolveMarkdownImageSrc(src, imageBaseDir, convertFileSrc);
+        const findImage = () =>
+          noteImages(latest.current.content).find(
+            (image) => image.start === node?.position?.start.offset,
+          );
         return (
           <img
             src={resolvedSrc}
             alt={alt ?? ""}
             loading="lazy"
-            className="w-[50%] rounded my-2 mx-auto block"
+            className="max-w-full rounded my-2 block cursor-zoom-in"
+            style={{ ...style, width: style?.width ?? "50%" }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setViewer({ src: resolvedSrc, image: findImage() });
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const image = findImage();
+              setMenu({
+                x: event.clientX,
+                y: event.clientY,
+                src: resolvedSrc,
+                noteImage: image,
+                image: image && onChange ? { width: image.width } : undefined,
+              });
+            }}
             {...props}
           />
         );
       },
     }),
-    [imageBaseDir],
+    [imageBaseDir, onChange],
   );
   return (
     <div className="font-body markdown-selectable" style={{ fontSize: `${fontSize}px` }}>
+      {viewer && (
+        <ImageViewer
+          src={viewer.src}
+          alt={viewer.image?.alt ?? ""}
+          onClose={closeViewer}
+          onSave={
+            onSaveImage && onChange && viewer.image
+              ? async (blob) => {
+                  const image = viewer.image!;
+                  // Reject stale positions before creating an attachment.
+                  replaceNoteImage(latest.current.content, image, {});
+                  const url = await latest.current.onSaveImage!(blob);
+                  latest.current.onChange!(
+                    replaceNoteImage(latest.current.content, image, { url }),
+                  );
+                }
+              : undefined
+          }
+        />
+      )}
+      {menu && (
+        <NoteContextMenu
+          state={menu}
+          onClose={closeMenu}
+          onCopy={() => {
+            closeMenu();
+            void copyNoteSelection(menu.src).catch((e) => latest.current.onError?.(String(e)));
+          }}
+          onResize={(width) => {
+            try {
+              if (menu.noteImage)
+                latest.current.onChange?.(
+                  replaceNoteImage(latest.current.content, menu.noteImage, { width }),
+                );
+            } catch (e) {
+              latest.current.onError?.(String(e));
+            }
+            closeMenu();
+          }}
+          actions={[
+            {
+              label: onSaveImage ? "预览与标注" : "预览图片",
+              icon: Scan,
+              run: () => {
+                closeMenu();
+                setViewer({ src: menu.src, image: menu.noteImage });
+              },
+            },
+          ]}
+        />
+      )}
       {content.trim() ? (
         <Markdown
           remarkPlugins={remarkPlugins}

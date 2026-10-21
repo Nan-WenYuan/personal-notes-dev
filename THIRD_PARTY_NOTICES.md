@@ -1,5 +1,12 @@
 # Third-Party Notices
 
+## React Zoom Pan Pinch
+
+The image preview uses React Zoom Pan Pinch, Copyright (c) 2019 prc5, under the MIT License.
+
+Source: https://github.com/BetterTyped/react-zoom-pan-pinch.
+The full license text is retained at `src/assets/licenses/react-zoom-pan-pinch.txt` and included in portable packages.
+
 ## Vditor and Lute
 
 The WYSIWYG editor uses Vditor (Copyright 2019-present B3log) and its bundled Lute Markdown engine. Both are MIT licensed. Vditor's full MIT license is included in the application's embedded offline editor resources at `editor/dist/LICENSE`.

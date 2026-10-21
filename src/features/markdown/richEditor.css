@@ -230,6 +230,22 @@
   max-width: 100%;
   height: auto;
 }
+/* A resized image is stored as an HTML image. Keep its preview a plain image,
+   rather than showing the HTML block's code background or source on click. */
+.rich-editor
+  .vditor-wysiwyg__block[data-type="html-block"]:has(> .vditor-wysiwyg__preview > img:only-child)
+  > pre:not(.vditor-wysiwyg__preview) {
+  display: none !important;
+}
+.rich-editor
+  .vditor-wysiwyg__block[data-type="html-block"]:has(> .vditor-wysiwyg__preview > img:only-child)
+  > .vditor-wysiwyg__preview {
+  display: block !important;
+  background: transparent;
+  background-image: none;
+  padding: 0;
+  border: 0;
+}
 .rich-editor .vditor-reset pre {
   background: var(--color-paper-warm);
 }

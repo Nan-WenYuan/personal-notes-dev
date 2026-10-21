@@ -34,6 +34,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'src/assets/fonts/LICENSE_Fonts') -Destination $licensesDir
     Copy-Item -LiteralPath (Join-Path $repoRoot 'src/assets/fonts/LICENSE_SourceHanSerif') -Destination $licensesDir
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'src/assets/licenses/react-zoom-pan-pinch.txt') -Destination $licensesDir
     foreach ($readerLicense in @('LICENSE-foliate-js', 'LICENSE-pdfjs', 'LICENSE-zip-js', 'LICENSE-fflate')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "public/book-engine/$readerLicense") -Destination $licensesDir
     }

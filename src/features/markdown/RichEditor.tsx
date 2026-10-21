@@ -7,6 +7,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { saveImage, saveImageFromPath } from "../images/api";
 import { createRichToolbar, editorTools } from "./toolbarAppearance";
 import { captureInsertionPosition, restoreInsertionPosition } from "./insertionPosition";
+import { NoteContextMenu, type NoteMenuState } from "../images/NoteContextMenu";
+import { noteImages, replaceNoteImage, type NoteImage } from "../images/imageMarkup";
+import { copyNoteSelection, pasteNoteClipboard } from "../images/clipboard";
+import { ImageViewer } from "../images/ImageViewer";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { Scan, ExternalLink, Link, Copy, Rows3, Columns3, Trash2 } from "lucide-react";
+import type { NoteMenuAction } from "../images/NoteContextMenu";
+import { resolveMarkdownImageSrc } from "./imageSrc";
 import "vditor/dist/index.css";
 import "./richEditor.css";
 import "./codeHighlight.css";
@@ -42,11 +50,61 @@ export function RichEditor(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const instance = useRef<Vditor | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const tableCommand = useRef<{ type: string; index: number } | null>(null);
   const latest = useRef(props);
   latest.current = props;
   const lastValue = useRef(props.content);
   const replayingPaste = useRef(false);
   const [ready, setReady] = useState(false);
+  const [menu, setMenu] = useState<
+    | (NoteMenuState & {
+        target: HTMLElement;
+        range: Range | null;
+        noteImage?: NoteImage;
+        element?: HTMLImageElement;
+        actions: NoteMenuAction[];
+      })
+    | null
+  >(null);
+  const [viewImage, setViewImage] = useState<{
+    src: string;
+    image: NoteImage;
+    editor: Vditor;
+  } | null>(null);
+  const closeMenu = () => setMenu(null);
+  const closeViewer = () => setViewImage(null);
+  const selectedImage = (element: HTMLImageElement) => {
+    const index = [
+      ...(host.current?.querySelectorAll<HTMLImageElement>(".vditor-wysiwyg img") ?? []),
+    ].indexOf(element);
+    const image = instance.current ? noteImages(instance.current.getValue())[index] : undefined;
+    if (!image) return undefined;
+    const comparable = (value: string) => {
+      try {
+        return decodeURIComponent(value)
+          .replace(/\\/g, "/")
+          .replace(/([^:])\/{2,}/g, "$1/");
+      } catch {
+        return value;
+      }
+    };
+    const expected = resolveMarkdownImageSrc(image.url, props.imageBaseDir, convertFileSrc);
+    // Do not edit a different Markdown image when arbitrary HTML contains extra images.
+    return comparable(new URL(expected, location.href).href) === comparable(element.src)
+      ? image
+      : undefined;
+  };
+  const changeImage = (image: NoteImage, patch: { url?: string; width?: number }) => {
+    const editor = instance.current;
+    if (!editor) throw Error("请重新打开笔记");
+    const value = replaceNoteImage(editor.getValue(), image, patch);
+    // Keep Vditor's undo stack: resizing or annotating must remain undoable.
+    editor.vditor.undo?.addToUndoStack(editor.vditor);
+    editor.setValue(value);
+    editor.vditor.undo?.addToUndoStack(editor.vditor);
+    lastValue.current = editor.getValue();
+    latest.current.onChange(lastValue.current);
+  };
   useImperativeHandle(
     props.editorRef,
     () => ({
@@ -94,10 +152,22 @@ export function RichEditor(props: Props) {
         toolbar: createRichToolbar(() => editor, props.compactToolbar),
         toolbarConfig: { pin: true },
         customWysiwygToolbar: (type, toolbar) => {
+          toolbar.style.visibility = type === "table" ? "hidden" : "";
+          if (type === "table" && tableCommand.current) {
+            const { type: commandType, index } = tableCommand.current;
+            tableCommand.current = null;
+            queueMicrotask(() => {
+              toolbar
+                .querySelectorAll<HTMLButtonElement>(`[data-type="${commandType}"]`)
+                [index]?.click();
+              syncInput();
+            });
+          }
           toolbar
             .querySelectorAll('[data-type="up"], [data-type="down"], [data-type="remove"]')
             .forEach((button) => button.remove());
-          if (type === "heading" || type === "code-block") toolbar.replaceChildren();
+          if (type === "heading" || type === "code-block" || type === "image")
+            toolbar.replaceChildren();
         },
         preview: {
           maxWidth: 10000,
@@ -333,8 +403,104 @@ export function RichEditor(props: Props) {
           }
         })();
       }}
-      onContextMenu={(event) => event.stopPropagation()}
-      onClickCapture={syncInput}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const target = event.target as HTMLElement;
+        const editable =
+          target.closest<HTMLElement>('[contenteditable="true"]') ??
+          host.current?.querySelector<HTMLElement>('[contenteditable="true"]');
+        if (!editable || props.disabled) return;
+        const image = target.closest<HTMLImageElement>("img") ?? undefined;
+        const noteImage = image ? selectedImage(image) : undefined;
+        const selection = window.getSelection();
+        let range = captureInsertionPosition(host.current);
+        const actions: NoteMenuAction[] = [];
+        const run = (action: () => void | Promise<void>) => () => {
+          closeMenu();
+          void Promise.resolve()
+            .then(action)
+            .catch((e) => latest.current.onError(e instanceof Error ? e.message : String(e)));
+        };
+        if (image && noteImage && instance.current) {
+          const editor = instance.current;
+          actions.push({
+            label: "预览与标注",
+            icon: Scan,
+            run: run(() => setViewImage({ src: image.src, image: noteImage, editor })),
+          });
+          range = document.createRange();
+          range.setStartAfter(image);
+          range.collapse(true);
+        } else if (target.closest("td, th")) {
+          const cell = target.closest<HTMLElement>("td, th")!;
+          // Ask Vditor to create its own table actions at this exact cell.
+          // Reuse these commands so selection, Markdown and undo stay native.
+          const cellRange = document.createRange();
+          cellRange.selectNodeContents(cell);
+          cellRange.collapse(true);
+          if (!range || !cell.contains(range.startContainer)) range = cellRange;
+          editable.focus();
+          selection?.removeAllRanges();
+          selection?.addRange(cellRange);
+          cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          const commands = [
+            ["在上方插入行", "insertRow", 0, Rows3],
+            ["在下方插入行", "insertRow", 1, Rows3],
+            ["在左侧插入列", "insertColumn", 0, Columns3],
+            ["在右侧插入列", "insertColumn", 1, Columns3],
+            ["删除当前行", "deleteRow", 0, Trash2],
+            ["删除当前列", "deleteColumn", 0, Trash2],
+          ] as const;
+          const savedRange = cellRange.cloneRange();
+          commands.forEach(([label, type, index, icon]) => {
+            actions.push({
+              label,
+              icon,
+              danger: type.startsWith("delete"),
+              run: run(() => {
+                editable.focus();
+                restoreInsertionPosition(host.current, savedRange);
+                tableCommand.current = { type, index };
+                cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+              }),
+            });
+          });
+        } else if (target.closest("a[href]")) {
+          const url = target.closest<HTMLAnchorElement>("a[href]")!.href;
+          if (/^https?:\/\//i.test(url))
+            actions.push({ label: "打开链接", icon: ExternalLink, run: run(() => openUrl(url)) });
+          actions.push({ label: "复制链接", icon: Link, run: run(() => writeText(url)) });
+        } else if (target.closest('[data-type="code-block"]')) {
+          const code =
+            target.closest('[data-type="code-block"]')!.querySelector("pre > code")?.textContent ??
+            "";
+          actions.push({ label: "复制代码", icon: Copy, run: run(() => writeText(code)) });
+        }
+        setMenu({
+          x: event.clientX,
+          y: event.clientY,
+          target: editable,
+          range,
+          actions,
+          element: image,
+          noteImage,
+          image: noteImage ? { width: noteImage.width } : undefined,
+        });
+      }}
+      onDoubleClickCapture={(event) => {
+        const image = (event.target as HTMLElement).closest<HTMLImageElement>("img");
+        const source = image ? selectedImage(image) : undefined;
+        if (image && source && instance.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          setViewImage({ src: image.src, image: source, editor: instance.current });
+        }
+      }}
+      onClickCapture={(event) => {
+        if ((event.target as HTMLElement).closest(".vditor-wysiwyg img")) event.stopPropagation();
+        syncInput();
+      }}
       onKeyUpCapture={() => {
         queueMicrotask(convertTaskShorthand);
         syncInput();
@@ -363,6 +529,61 @@ export function RichEditor(props: Props) {
       }}
     >
       <div ref={host} className="h-full" />
+      {menu && (
+        <NoteContextMenu
+          state={menu}
+          onClose={closeMenu}
+          actions={menu.actions}
+          onCopy={() => {
+            const current = menu;
+            closeMenu();
+            void Promise.resolve()
+              .then(() => {
+                if (!current.element) {
+                  current.target.focus();
+                  restoreInsertionPosition(host.current, current.range);
+                }
+                return copyNoteSelection(current.element?.src);
+              })
+              .catch((e) => latest.current.onError(String(e)));
+          }}
+          onPaste={() => {
+            const current = menu;
+            closeMenu();
+            void Promise.resolve()
+              .then(() => {
+                current.target.focus();
+                restoreInsertionPosition(host.current, current.range);
+                return pasteNoteClipboard(current.target);
+              })
+              .catch((e) => latest.current.onError(String(e)));
+          }}
+          onResize={(width) => {
+            try {
+              if (menu.noteImage) changeImage(menu.noteImage, { width });
+            } catch (e) {
+              latest.current.onError(String(e));
+            }
+            closeMenu();
+          }}
+        />
+      )}
+      {viewImage && (
+        <ImageViewer
+          src={viewImage.src}
+          alt={viewImage.image.alt}
+          onClose={closeViewer}
+          onSave={async (blob) => {
+            const current = viewImage;
+            const id = await latest.current.onEnsureNoteSaved();
+            if (!id || instance.current !== current.editor)
+              throw Error("笔记已切换，请重新打开图片");
+            const url = await saveImage(id, new Uint8Array(await blob.arrayBuffer()), "png");
+            if (instance.current !== current.editor) throw Error("笔记已切换，请重新打开图片");
+            changeImage(current.image, { url });
+          }}
+        />
+      )}
       {ready &&
         editorTools.map(({ name, icon: Icon }) => {
           const target = toolbarRef.current?.querySelector<HTMLElement>(
