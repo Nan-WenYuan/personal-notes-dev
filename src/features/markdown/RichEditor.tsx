@@ -105,6 +105,21 @@ export function RichEditor(props: Props) {
     lastValue.current = editor.getValue();
     latest.current.onChange(lastValue.current);
   };
+  const gallery = viewImage ? noteImages(props.content) : [];
+  const galleryIndex = viewImage
+    ? gallery.findIndex(
+        (image) => image.start === viewImage.image.start && image.url === viewImage.image.url,
+      )
+    : -1;
+  const navigateImage = (index: number) => {
+    const image = gallery[index];
+    if (!image || !instance.current) return;
+    setViewImage({
+      src: resolveMarkdownImageSrc(image.url, props.imageBaseDir, convertFileSrc),
+      image,
+      editor: instance.current,
+    });
+  };
   useImperativeHandle(
     props.editorRef,
     () => ({
@@ -569,6 +584,14 @@ export function RichEditor(props: Props) {
       )}
       {viewImage && (
         <ImageViewer
+          imageKey={`${viewImage.image.start}:${viewImage.image.url}`}
+          position={{ current: galleryIndex + 1, total: gallery.length }}
+          onPrevious={galleryIndex > 0 ? () => navigateImage(galleryIndex - 1) : undefined}
+          onNext={
+            galleryIndex >= 0 && galleryIndex < gallery.length - 1
+              ? () => navigateImage(galleryIndex + 1)
+              : undefined
+          }
           src={viewImage.src}
           alt={viewImage.image.alt}
           onClose={closeViewer}

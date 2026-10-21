@@ -4,6 +4,12 @@ import remarkParse from "remark-parse";
 import { imageWidth, noteImages, replaceNoteImage, remarkNoteImages } from "./imageMarkup";
 
 describe("note image editing", () => {
+  it("separates adjacent pasted images when one becomes an HTML image", () => {
+    const content = "![](first.png)![](second.png)\n";
+    const resized = replaceNoteImage(content, noteImages(content)[0], { width: 50 });
+    expect(resized).toBe('<img src="first.png" alt="" style="width:50%;" />\n\n![](second.png)\n');
+    expect(noteImages(resized).map((image) => image.url)).toEqual(["first.png", "second.png"]);
+  });
   it("changes only the requested occurrence, retaining code, titles and other text", () => {
     const content = '正文\n\n![第一张](图.png "标题")\n\n![第二张](图.png)\n\n`![代码](图.png)`\n';
     const images = noteImages(content);

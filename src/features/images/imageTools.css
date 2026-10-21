@@ -270,6 +270,28 @@
   font-size: 12px;
   pointer-events: none;
 }
+.image-dimensions.image-gallery-position {
+  margin-right: 0;
+  font-variant-numeric: tabular-nums;
+}
+.image-gallery-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.image-gallery-previous {
+  left: 12px;
+}
+.image-gallery-next {
+  right: 12px;
+}
+.image-gallery-nav button {
+  background: var(--color-cloud);
+  border: 1px solid var(--color-paper-deep);
+  box-shadow: 0 2px 10px #0002;
+  width: 36px;
+  height: 44px;
+}
 @media (max-width: 760px) {
   .image-viewer-backdrop {
     padding: 8px;

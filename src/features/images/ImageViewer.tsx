@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   TransformWrapper,
@@ -18,6 +18,8 @@ import {
   Redo2,
   Save,
   LoaderCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { annotatedPng, arrowHead, imagePoint, type Annotation, type Point } from "./annotations";
 import "./imageTools.css";
@@ -29,17 +31,27 @@ export function ImageViewer({
   alt,
   onClose,
   onSave,
+  imageKey = src,
+  position,
+  onPrevious,
+  onNext,
 }: {
   src: string;
   alt: string;
   onClose(): void;
   onSave?(blob: Blob): Promise<void>;
+  imageKey?: string;
+  position?: { current: number; total: number };
+  onPrevious?(): void;
+  onNext?(): void;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
   const transform = useRef<ReactZoomPanPinchRef>(null);
   const image = useRef<HTMLImageElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const active = useRef(true);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [tool, setTool] = useState<Tool>("pan");
   const [color, setColor] = useState(colors[0]);
   const [marks, setMarks] = useState<Annotation[]>([]);
@@ -51,6 +63,34 @@ export function ImageViewer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const savingRef = useRef(false);
+  useLayoutEffect(() => {
+    const element = stage.current!;
+    const measure = () => setViewport({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const fitScale =
+    dimensions.width && dimensions.height && viewport.width && viewport.height
+      ? Math.min(1, viewport.width / dimensions.width, viewport.height / dimensions.height)
+      : 1;
+  const minScale = dimensions.width && viewport.width ? Math.max(0.001, fitScale / 2) : 0.001;
+  useEffect(() => {
+    const current = transform.current;
+    if (current && current.state.scale < minScale) void current.centerView(minScale, 0);
+  }, [minScale, imageKey]);
+  const percent = (value: number) => Math.round(value * 10000) / 100;
+  const drafts = useRef(new Map<string, { marks: Annotation[]; redo: Annotation[] }>());
+  useLayoutEffect(() => {
+    const saved = drafts.current.get(imageKey);
+    setMarks(saved?.marks ?? []);
+    setRedo(saved?.redo ?? []);
+    setDraft(null);
+    setText(null);
+    setError("");
+    setDimensions({ width: 0, height: 0 });
+  }, [imageKey]);
   const size = Math.max(2, Math.min(dimensions.width, dimensions.height) / 200);
   const commit = (a: Annotation) => {
     setMarks((current) => [...current, a]);
@@ -60,6 +100,14 @@ export function ImageViewer({
     if (text?.value.trim())
       commit({ type: "text", start: text.start, text: text.value.trim(), color, size });
     setText(null);
+  };
+  const navigate = (action?: () => void) => {
+    if (!action || savingRef.current) return;
+    const currentMarks = [...marks];
+    if (text?.value.trim())
+      currentMarks.push({ type: "text", start: text.start, text: text.value.trim(), color, size });
+    drafts.current.set(imageKey, { marks: currentMarks, redo });
+    action();
   };
   const undo = () => {
     const last = marks[marks.length - 1];
@@ -91,6 +139,21 @@ export function ImageViewer({
   }, [onClose]);
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     event.stopPropagation();
+    if (
+      !(event.target instanceof HTMLInputElement) &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        navigate(onPrevious);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        navigate(onNext);
+      }
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       if (!savingRef.current) onClose();
@@ -193,6 +256,11 @@ export function ImageViewer({
       >
         <header>
           <span className="image-viewer-title">{alt || "图片"}</span>
+          {position && position.total > 1 && (
+            <span className="image-dimensions image-gallery-position" aria-label="图片序号">
+              {position.current} / {position.total}
+            </span>
+          )}
           <span className="image-dimensions">
             {dimensions.width ? `${dimensions.width} × ${dimensions.height}` : ""}
           </span>
@@ -208,19 +276,25 @@ export function ImageViewer({
           )}
           {button("关闭图片预览", X, onClose)}
         </header>
-        <div className="image-viewer-stage" aria-label="图片画布">
+        <div ref={stage} className="image-viewer-stage" aria-label="图片画布">
           <TransformWrapper
+            key={imageKey}
             ref={transform}
-            minScale={0.01}
-            maxScale={8}
+            minScale={minScale}
+            maxScale={4}
             fitOnInit
             centerOnInit
-            limitToBounds={false}
+            limitToBounds
+            centerZoomedOut
+            disablePadding
+            zoomAnimation={{ disabled: true }}
+            autoAlignment={{ sizeX: 0, sizeY: 0 }}
+            wheel={{ step: 0.001 }}
             panning={{ disabled: tool !== "pan", velocityDisabled: true }}
             doubleClick={{ disabled: true }}
             onTransform={(_, state) => {
-              setScale(Math.round(state.scale * 100));
-              setZoom(String(Math.round(state.scale * 100)));
+              setScale(percent(state.scale));
+              setZoom(String(percent(state.scale)));
             }}
           >
             <TransformComponent
@@ -340,6 +414,16 @@ export function ImageViewer({
               )}
             </TransformComponent>
           </TransformWrapper>
+          {position && position.total > 1 && (
+            <>
+              <div className="image-gallery-nav image-gallery-previous">
+                {button("上一张图片", ChevronLeft, () => navigate(onPrevious), !onPrevious)}
+              </div>
+              <div className="image-gallery-nav image-gallery-next">
+                {button("下一张图片", ChevronRight, () => navigate(onNext), !onNext)}
+              </div>
+            </>
+          )}
           {!dimensions.width && !error && (
             <div className="image-viewer-loading" role="status">
               <LoaderCircle size={20} className="animate-spin" />
@@ -413,10 +497,15 @@ export function ImageViewer({
             {button("缩小图片", ZoomOut, () => void transform.current?.zoomOut())}
             <form
               className="image-zoom-input"
+              noValidate
               onSubmit={(e) => {
                 e.preventDefault();
                 const value = Number(zoom);
-                if (value >= 1 && value <= 800) void transform.current?.centerView(value / 100, 0);
+                if (Number.isFinite(value))
+                  void transform.current?.centerView(
+                    Math.max(minScale, Math.min(4, value / 100)),
+                    0,
+                  );
                 else setZoom(String(scale));
               }}
             >
@@ -425,8 +514,9 @@ export function ImageViewer({
                 value={zoom}
                 onChange={(e) => setZoom(e.target.value)}
                 type="number"
-                min="1"
-                max="800"
+                min={percent(minScale)}
+                max="400"
+                step="any"
               />
               %
             </form>

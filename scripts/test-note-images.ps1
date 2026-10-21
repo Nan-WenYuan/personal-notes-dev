@@ -1,4 +1,8 @@
 $ErrorActionPreference = 'Stop'
+try {
+    $previewStatus = Invoke-WebRequest -Uri 'http://localhost:1420/tests/desktop/note-images.html' -UseBasicParsing -TimeoutSec 3
+    if ($previewStatus.StatusCode -ne 200) { throw '开发预览未就绪。' }
+} catch { throw '请先启动开发预览（npm run dev）；无法访问 localhost:1420 的图片验收页面。' }
 $taskRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $taskTemp = Join-Path $taskRoot 'Docs/临时/笔记图片原生测试'
 $taskRunner = Join-Path $taskTemp 'desktop-test.exe'

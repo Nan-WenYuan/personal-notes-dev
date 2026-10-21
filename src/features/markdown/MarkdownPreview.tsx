@@ -336,6 +336,17 @@ export function MarkdownPreview({
   latest.current = { content, onChange, onSaveImage, onError };
   const closeViewer = useCallback(() => setViewer(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const gallery = viewer ? noteImages(content) : [];
+  const galleryIndex = viewer?.image
+    ? gallery.findIndex(
+        (image) => image.start === viewer.image!.start && image.url === viewer.image!.url,
+      )
+    : -1;
+  const navigateImage = (index: number) => {
+    const image = gallery[index];
+    if (image)
+      setViewer({ src: resolveMarkdownImageSrc(image.url, imageBaseDir, convertFileSrc), image });
+  };
   const components = useMemo<Components>(
     () => ({
       ...staticComponents,
@@ -380,6 +391,14 @@ export function MarkdownPreview({
     <div className="font-body markdown-selectable" style={{ fontSize: `${fontSize}px` }}>
       {viewer && (
         <ImageViewer
+          imageKey={viewer.image ? `${viewer.image.start}:${viewer.image.url}` : viewer.src}
+          position={{ current: galleryIndex + 1, total: gallery.length }}
+          onPrevious={galleryIndex > 0 ? () => navigateImage(galleryIndex - 1) : undefined}
+          onNext={
+            galleryIndex >= 0 && galleryIndex < gallery.length - 1
+              ? () => navigateImage(galleryIndex + 1)
+              : undefined
+          }
           src={viewer.src}
           alt={viewer.image?.alt ?? ""}
           onClose={closeViewer}

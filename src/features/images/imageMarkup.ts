@@ -13,6 +13,7 @@ export interface NoteImage {
   alt: string;
   title?: string | null;
   width?: number;
+  separateBlock?: boolean;
 }
 export function imageWidth(value: unknown): number | undefined {
   const match = String(value ?? "").match(/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)%\s*(?:;|$)/i);
@@ -33,7 +34,7 @@ export function noteImages(content: string): NoteImage[] {
     if (!definitions.has(node.identifier)) definitions.set(node.identifier, node);
   });
   const images: NoteImage[] = [];
-  visit(tree, (node) => {
+  visit(tree, (node, _index, parent) => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) return;
@@ -60,6 +61,15 @@ export function noteImages(content: string): NoteImage[] {
         start,
         end,
         source: content.slice(start, end),
+        separateBlock:
+          parent?.type === "paragraph" &&
+          parent.children.every(
+            (child) =>
+              child.type === "image" ||
+              child.type === "imageReference" ||
+              (child.type === "text" && !child.value.trim()) ||
+              (child.type === "html" && !!htmlImage(child.value)),
+          ),
       });
   });
   return images;
@@ -77,7 +87,23 @@ export function replaceNoteImage(
   if (width !== undefined && (!Number.isFinite(width) || width < 1 || width > 100))
     throw Error("请输入 1 到 100 之间的比例");
   const markup = `<img src="${escapeAttribute(url)}" alt="${escapeAttribute(alt)}"${title ? ` title="${escapeAttribute(title)}"` : ""}${width !== undefined ? ` style="width:${width}%;"` : ""} />`;
-  return content.slice(0, image.start) + markup + content.slice(image.end);
+  const before = content.slice(0, image.start);
+  const after = content.slice(image.end);
+  // Vditor may place pasted images next to each other in one paragraph. Keep
+  // a resized HTML image in its own block so Lute renders both attachments.
+  const prefix =
+    image.separateBlock && before && !before.endsWith("\n\n")
+      ? before.endsWith("\n")
+        ? "\n"
+        : "\n\n"
+      : "";
+  const suffix =
+    image.separateBlock && after && !after.startsWith("\n\n")
+      ? after.startsWith("\n")
+        ? "\n"
+        : "\n\n"
+      : "";
+  return before + prefix + markup + suffix + after;
 }
 // Render only a single image tag when general HTML rendering is disabled.
 // All other HTML stays literal; image attributes are explicitly allowlisted.

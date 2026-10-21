@@ -12,6 +12,9 @@ const editorRef = createRef<RichEditorHandle>();
 let content = "";
 let failure: string | null = null;
 let revision = 0;
+window.addEventListener("error", (event) => {
+  void invoke("image_verification_report", { error: event.message });
+});
 function Harness({ note, base }: { note: Note; base: string }) {
   const [value, setValue] = useState(note.content);
   return (
@@ -39,7 +42,10 @@ async function until(test: () => boolean, label: string) {
   const start = performance.now();
   while (!test()) {
     if (failure) throw Error(failure);
-    if (performance.now() - start > 8000) throw Error(label);
+    if (performance.now() - start > 8000)
+      throw Error(
+        `${label}; viewer=${!!document.querySelector(".image-viewer")}; images=${JSON.stringify([...document.querySelectorAll<HTMLImageElement>(".vditor-wysiwyg img, .image-viewer-original")].map((image) => ({ src: image.src, width: image.naturalWidth })))}; content=${content.slice(0, 800)}`,
+      );
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
@@ -79,6 +85,23 @@ try {
   await checkImages();
   if (!content.includes("![](") || content.includes("asset.localhost"))
     throw Error("saved image link must remain relative");
+  // Add a distinct attachment so gallery navigation cannot pass by redisplaying
+  // the same URL, even though the fixture pixels happen to be identical.
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  const secondClipboard = new DataTransfer();
+  secondClipboard.items.add(new File([bytes], "第二张 图片.png", { type: "image/png" }));
+  editor.dispatchEvent(
+    new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: secondClipboard,
+    }),
+  );
+  await until(() => noteImages(content).length === 2, "second gallery attachment was not pasted");
+  const secondImage = noteImages(content)[1];
   const original = noteImages(content)[0];
   const originalElement = document.querySelector<HTMLImageElement>(".vditor-wysiwyg img")!;
   const originalBytes = await (await fetch(originalElement.src)).arrayBuffer();
@@ -116,15 +139,81 @@ try {
   );
   // Exercise the actual viewer's text annotation and Save Copy button, using
   // native Tauri asset origins and IPC rather than a browser save mock.
-  resized.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  document
+    .querySelector<HTMLImageElement>(".vditor-wysiwyg img")!
+    .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   await until(
     () =>
       !!document.querySelector(".image-viewer-original") &&
       document.querySelector<HTMLImageElement>(".image-viewer-original")?.naturalWidth === 32,
     "image viewer did not open",
   );
+  const zoomInput = document.querySelector<HTMLInputElement>('[aria-label="预览缩放百分比"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(zoomInput, "100");
+  zoomInput.dispatchEvent(new Event("input", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  zoomInput.form!.requestSubmit();
+  await until(
+    () =>
+      Math.abs(
+        document.querySelector<HTMLImageElement>(".image-viewer-original")!.getBoundingClientRect()
+          .width - 32,
+      ) < 0.2,
+    "zoom input did not apply 100 percent",
+  );
+  const wheelImage = document.querySelector<HTMLImageElement>(".image-viewer-original")!;
+  const wheelBounds = wheelImage.getBoundingClientRect();
+  wheelImage.dispatchEvent(
+    new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -100,
+      clientX: wheelBounds.left + 10,
+      clientY: wheelBounds.top + 10,
+    }),
+  );
+  await until(
+    () => zoomInput.value === "110",
+    "wheel zoom should advance by 10 points for a 100-unit wheel delta",
+  );
+  const setZoom = async (value: string) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+      zoomInput,
+      value,
+    );
+    zoomInput.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    zoomInput.form!.requestSubmit();
+  };
+  await setZoom("9999");
+  await until(() => zoomInput.value === "400", "zoom upper bound was not enforced");
+  await setZoom("0");
+  await until(() => zoomInput.value === "50", "small image zoom lower bound was not enforced");
+  const centered = () => {
+    const picture = document
+      .querySelector<HTMLImageElement>(".image-viewer-original")!
+      .getBoundingClientRect();
+    const stage = document.querySelector(".image-viewer-stage")!.getBoundingClientRect();
+    return (
+      Math.abs(picture.left + picture.width / 2 - stage.left - stage.width / 2) < 1 &&
+      Math.abs(picture.top + picture.height / 2 - stage.top - stage.height / 2) < 1
+    );
+  };
+  await until(centered, "small image was not centered");
+  const small = wheelImage.getBoundingClientRect();
+  wheelImage.dispatchEvent(
+    new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: small.left + 5,
+      clientY: small.top + 5,
+    }),
+  );
+  window.dispatchEvent(new MouseEvent("mousemove", { buttons: 1, clientX: 5000, clientY: 5000 }));
+  window.dispatchEvent(new MouseEvent("mouseup", { button: 0 }));
+  await until(centered, "small image was dragged out of view");
   document.querySelector<HTMLButtonElement>('[aria-label="文字标注"]')!.click();
-  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const drawingImage = document
     .querySelector<HTMLImageElement>(".image-viewer-original")!
     .getBoundingClientRect();
@@ -152,12 +241,36 @@ try {
     () => !document.querySelector('[aria-label="标注文字"]'),
     "Enter did not commit text annotation",
   );
+  document.querySelector<HTMLButtonElement>('[aria-label="下一张图片"]')!.click();
+  await until(
+    () =>
+      document.querySelector('[aria-label="图片序号"]')?.textContent === "2 / 2" &&
+      document
+        .querySelector<HTMLImageElement>(".image-viewer-original")!
+        .src.includes(secondImage.url.split("/").pop()!),
+    "next image button did not change the image",
+  );
+  if (document.querySelector("[data-annotation]"))
+    throw Error("annotations leaked to the next image");
+  if (!document.querySelector<HTMLButtonElement>('[aria-label="下一张图片"]')!.disabled)
+    throw Error("last image must disable next");
+  document
+    .querySelector(".image-viewer")!
+    .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+  await until(
+    () =>
+      document.querySelector('[aria-label="图片序号"]')?.textContent === "1 / 2" &&
+      !!document.querySelector('[data-annotation="text"]'),
+    "previous image key did not restore unsaved annotations",
+  );
   document.querySelector<HTMLButtonElement>(".image-save")!.click();
   await until(
     () => !document.querySelector(".image-viewer") && noteImages(content)[0]?.url !== original.url,
     "annotated copy was not saved by the viewer",
   );
   const copy = noteImages(content)[0].url;
+  if (noteImages(content)[1].url !== secondImage.url)
+    throw Error("annotation save changed the other image");
   if (copy === original.url) throw Error("annotation overwrote the original image");
   const unchanged = new Uint8Array(await (await fetch(resized.src)).arrayBuffer());
   if (
@@ -185,6 +298,11 @@ try {
   await until(
     () => !!document.querySelector(".image-viewer"),
     "single click did not open split preview image",
+  );
+  document.querySelector<HTMLButtonElement>('[aria-label="下一张图片"]')!.click();
+  await until(
+    () => document.querySelector('[aria-label="图片序号"]')?.textContent === "2 / 2",
+    "split preview gallery did not navigate",
   );
   document.querySelector<HTMLButtonElement>('[aria-label="关闭图片预览"]')!.click();
   await until(() => !document.querySelector(".image-viewer"), "split image preview did not close");
