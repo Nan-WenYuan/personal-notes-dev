@@ -275,7 +275,7 @@ export function ImageViewer({
               disabled={saving || (!marks.length && !text?.value.trim())}
             >
               {saving ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}{" "}
-              {saving ? "正在保存…" : "保存副本"}
+              {saving ? "正在保存…" : "保存标注"}
             </button>
           )}
           {button("关闭图片预览", X, onClose)}

@@ -30,6 +30,16 @@ fn image_verification_report(
             if scope.is_allowed(path) || scope.is_allowed(store.data_dir().join("metadata.json")) {
                 return Err("image permission must not expose note text or metadata".into());
             }
+            let attachments = std::fs::read_dir(store.images_dir(id))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            if attachments.len() != 2 {
+                return Err(format!(
+                    "annotation save left unused originals: {} attachments",
+                    attachments.len()
+                ));
+            }
             Ok(())
         },
         Err,

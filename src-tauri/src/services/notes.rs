@@ -977,6 +977,11 @@ impl NoteStore {
                 let _ = recycle_path(&old_path);
             }
         }
+        // Only annotation replacements are eligible, and only after the note
+        // and metadata are durable. A cleanup failure must not undo a save.
+        if let Err(error) = self.clean_replaced_images(id) {
+            eprintln!("annotation attachment cleanup: {error}");
+        }
         Ok(result)
     }
 
@@ -1092,6 +1097,105 @@ impl NoteStore {
         let dir = self.images_dir(note_id);
         if dir.exists() {
             fs::remove_dir_all(&dir)?;
+        }
+        Ok(())
+    }
+
+    pub fn track_replaced_image(
+        &self,
+        note_id: &str,
+        previous: &str,
+        replacement: &str,
+    ) -> Result<(), AppError> {
+        let _guard = crate::recycle_bin::lock();
+        let note = self.find_metadata(note_id)?;
+        let prefix = Self::image_prefix(&note.file_name);
+        let file = |url: &str| -> Option<String> {
+            let name = url.strip_prefix(&prefix)?;
+            // Only app-generated attachment names in this note's directory.
+            let (id, ext) = name.rsplit_once('.')?;
+            (Uuid::parse_str(id).is_ok()
+                && ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].contains(&ext))
+            .then(|| name.to_string())
+        };
+        let (Some(previous), Some(replacement)) = (file(previous), file(replacement)) else {
+            return Ok(()); // Remote/external images are never deleted.
+        };
+        let path = self.images_dir(note_id).join(".image-replacements.json");
+        let mut pending: BTreeMap<String, String> = if path.exists() {
+            serde_json::from_str(&fs::read_to_string(&path)?)?
+        } else {
+            BTreeMap::new()
+        };
+        pending.insert(replacement, previous);
+        write_json_atomic(&path, &pending)
+    }
+
+    fn clean_replaced_images(&self, note_id: &str) -> Result<(), AppError> {
+        let dir = self.images_dir(note_id);
+        let path = dir.join(".image-replacements.json");
+        if !path.exists() {
+            return Ok(());
+        }
+        let mut pending: BTreeMap<String, String> =
+            serde_json::from_str(&fs::read_to_string(&path)?)?;
+        // Read every saved note before deleting anything. Names contain UUIDs;
+        // a conservative substring check also protects cross-note/HTML links.
+        let contents = self
+            .load_metadata()?
+            .notes
+            .iter()
+            .map(|note| {
+                fs::read_to_string(self.note_path_in_category(&note.file_name, &note.category))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let referenced = |name: &str| contents.iter().any(|content| content.contains(name));
+        let safe_name = |name: &str| {
+            name.rsplit_once('.').is_some_and(|(id, ext)| {
+                Uuid::parse_str(id).is_ok()
+                    && ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].contains(&ext)
+            })
+        };
+        let mut durable: Vec<String> = pending
+            .keys()
+            .filter(|name| referenced(name) && safe_name(name) && dir.join(name).is_file())
+            .cloned()
+            .collect();
+        // Multiple edits before autosave form a chain; follow it back so no
+        // abandoned intermediate originals remain after the final image saves.
+        let mut index = 0;
+        while index < durable.len() {
+            if let Some(previous) = pending.get(&durable[index]) {
+                if !durable.contains(previous) {
+                    durable.push(previous.clone());
+                }
+            }
+            index += 1;
+        }
+        let mut completed = Vec::new();
+        for (replacement, previous) in &pending {
+            if !safe_name(replacement) || !safe_name(previous) {
+                continue;
+            }
+            if !durable.contains(replacement) || referenced(previous) {
+                continue;
+            }
+            let target = dir.join(previous);
+            match fs::remove_file(&target) {
+                Ok(()) => completed.push(replacement.clone()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    completed.push(replacement.clone())
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        for name in completed {
+            pending.remove(&name);
+        }
+        if pending.is_empty() {
+            fs::remove_file(path)?;
+        } else {
+            write_json_atomic(&path, &pending)?;
         }
         Ok(())
     }
@@ -2160,6 +2264,123 @@ fn default_locale() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn annotation_replacement_cleans_only_after_durable_save() {
+        let store = test_store("annotation-replacement");
+        let note = store
+            .create_note(SaveNoteRequest {
+                title: "原图".into(),
+                content: String::new(),
+                category: String::new(),
+            })
+            .unwrap();
+        let original = store.save_image(&note.id, b"original", "jpg").unwrap();
+        let old_name = original.rsplit('/').next().unwrap();
+        store
+            .update_note(
+                &note.id,
+                SaveNoteRequest {
+                    title: note.title.clone(),
+                    content: format!("![]({original})"),
+                    category: String::new(),
+                },
+            )
+            .unwrap();
+        let replacement = store.save_image(&note.id, b"annotated", "png").unwrap();
+        store
+            .track_replaced_image(&note.id, &original, &replacement)
+            .unwrap();
+        // A failed/stale UI edit or a save conflict must never remove the old image.
+        store.clean_replaced_images(&note.id).unwrap();
+        assert_eq!(
+            fs::read(store.images_dir(&note.id).join(old_name)).unwrap(),
+            b"original"
+        );
+        assert!(store
+            .update_note_checked(
+                &note.id,
+                SaveNoteRequest {
+                    title: note.title.clone(),
+                    content: format!("![]({replacement})"),
+                    category: String::new(),
+                },
+                Some("stale")
+            )
+            .is_err());
+        assert!(store.images_dir(&note.id).join(old_name).exists());
+        // A second reference protects the old attachment, even across notes.
+        let other = store
+            .create_note(SaveNoteRequest {
+                title: "共用".into(),
+                content: format!("![]({original})"),
+                category: String::new(),
+            })
+            .unwrap();
+        store
+            .update_note(
+                &note.id,
+                SaveNoteRequest {
+                    title: note.title.clone(),
+                    content: format!("![]({replacement})"),
+                    category: String::new(),
+                },
+            )
+            .unwrap();
+        assert!(store.images_dir(&note.id).join(old_name).exists());
+        store
+            .update_note(
+                &other.id,
+                SaveNoteRequest {
+                    title: other.title,
+                    content: String::new(),
+                    category: String::new(),
+                },
+            )
+            .unwrap();
+        // More than one annotation before autosave: clean the whole committed chain.
+        let final_image = store.save_image(&note.id, b"final", "png").unwrap();
+        store
+            .track_replaced_image(&note.id, &replacement, &final_image)
+            .unwrap();
+        let unrelated = store.save_image(&note.id, b"unrelated", "png").unwrap();
+        let saved = store
+            .update_note(
+                &note.id,
+                SaveNoteRequest {
+                    title: "新名字 空格".into(),
+                    content: format!("![]({final_image})"),
+                    category: "资料".into(),
+                },
+            )
+            .unwrap();
+        assert!(!store.images_dir(&note.id).join(old_name).exists());
+        assert!(!store
+            .images_dir(&note.id)
+            .join(replacement.rsplit('/').next().unwrap())
+            .exists());
+        assert!(!store
+            .images_dir(&note.id)
+            .join(".image-replacements.json")
+            .exists());
+        assert_eq!(
+            fs::read(
+                store
+                    .images_dir(&note.id)
+                    .join(final_image.rsplit('/').next().unwrap())
+            )
+            .unwrap(),
+            b"final"
+        );
+        assert!(store
+            .images_dir(&note.id)
+            .join(unrelated.rsplit('/').next().unwrap())
+            .exists());
+        assert!(saved
+            .content
+            .contains(final_image.rsplit('/').next().unwrap()));
+        fs::remove_dir_all(store.data_dir()).unwrap();
+    }
 
     #[test]
     fn agent_files_sync_without_editing_metadata_and_keep_paths() {

@@ -107,7 +107,7 @@ interface MarkdownPreviewProps {
   renderHtml?: boolean;
   imageBaseDir?: string;
   onChange?(value: string): void;
-  onSaveImage?(blob: Blob): Promise<string>;
+  onSaveImage?(blob: Blob, replaces: string): Promise<string>;
   onError?(message: string): void;
 }
 
@@ -408,7 +408,7 @@ export function MarkdownPreview({
                   const image = viewer.image!;
                   // Reject stale positions before creating an attachment.
                   replaceNoteImage(latest.current.content, image, {});
-                  const url = await latest.current.onSaveImage!(blob);
+                  const url = await latest.current.onSaveImage!(blob, image.url);
                   latest.current.onChange!(
                     replaceNoteImage(latest.current.content, image, { url }),
                   );

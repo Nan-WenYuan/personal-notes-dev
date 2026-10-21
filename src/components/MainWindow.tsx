@@ -4001,7 +4001,7 @@ export function MainWindow({
                                 setContent(value);
                                 markDirty();
                               }}
-                              onSaveImage={async (blob) => {
+                              onSaveImage={async (blob, replaces) => {
                                 const id = selectedId;
                                 if (!id || selectedIdRef.current !== id)
                                   throw Error("笔记已切换，请重新打开图片");
@@ -4009,6 +4009,7 @@ export function MainWindow({
                                   id,
                                   new Uint8Array(await blob.arrayBuffer()),
                                   "png",
+                                  replaces,
                                 );
                                 if (selectedIdRef.current !== id)
                                   throw Error("笔记已切换，请重新打开图片");

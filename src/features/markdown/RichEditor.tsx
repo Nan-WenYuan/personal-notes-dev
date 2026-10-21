@@ -600,9 +600,17 @@ export function RichEditor(props: Props) {
             const id = await latest.current.onEnsureNoteSaved();
             if (!id || instance.current !== current.editor)
               throw Error("笔记已切换，请重新打开图片");
-            const url = await saveImage(id, new Uint8Array(await blob.arrayBuffer()), "png");
+            const url = await saveImage(
+              id,
+              new Uint8Array(await blob.arrayBuffer()),
+              "png",
+              current.image.url,
+            );
             if (instance.current !== current.editor) throw Error("笔记已切换，请重新打开图片");
             changeImage(current.image, { url });
+            // Saving annotations discards the source file after autosave;
+            // old undo entries must not resurrect a link to that deleted file.
+            current.editor.clearStack();
           }}
         />
       )}

@@ -293,7 +293,7 @@ try {
   document.querySelector<HTMLButtonElement>(".image-save")!.click();
   await until(
     () => !document.querySelector(".image-viewer") && noteImages(content)[0]?.url !== original.url,
-    "annotated copy was not saved by the viewer",
+    "annotations were not saved by the viewer",
   );
   const copy = noteImages(content)[0].url;
   if (noteImages(content)[1].url !== secondImage.url)
@@ -343,7 +343,7 @@ try {
   await mount(await invoke<Note>("notes_get", { id }));
   await checkImages();
   document.getElementById("result")!.textContent =
-    "通过：PNG 粘贴、图片比例、透明背景、菜单关闭、原生标注导出和副本保存、重命名移动及重新打开";
+    "通过：PNG 粘贴、图片比例、透明背景、菜单关闭、原生标注保存和旧图清理、重命名移动及重新打开";
   await invoke("image_verification_report", { error: null });
 } catch (error) {
   document.getElementById("result")!.textContent = String(error);

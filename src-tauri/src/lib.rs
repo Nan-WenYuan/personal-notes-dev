@@ -248,7 +248,24 @@ fn images_save(request: tauri::ipc::Request<'_>) -> Result<String, AppError> {
     };
     let note_id = header("x-note-id")?;
     let extension = header("x-image-ext")?;
-    default_store()?.save_image(&note_id, data, &extension)
+    let store = default_store()?;
+    let url = store.save_image(&note_id, data, &extension)?;
+    if let Some(replaces) = request
+        .headers()
+        .get("x-image-replaces")
+        .and_then(|v| v.to_str().ok())
+    {
+        let decoded = reqwest::Url::parse(&format!("https://local.invalid/?url={replaces}"))
+            .map_err(|error| AppError {
+                code: "invalidPayload".into(),
+                message: error.to_string(),
+                details: Default::default(),
+            })?;
+        if let Some((_, previous)) = decoded.query_pairs().find(|(key, _)| key == "url") {
+            store.track_replaced_image(&note_id, &previous, &url)?;
+        }
+    }
+    Ok(url)
 }
 
 #[tauri::command]
