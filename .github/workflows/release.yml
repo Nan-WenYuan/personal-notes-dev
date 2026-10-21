@@ -70,7 +70,7 @@ jobs:
           ./scripts/build-portable.ps1 -Type R
           New-Item -ItemType Directory -Force release-assets | Out-Null
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          Copy-Item -LiteralPath '交付/花笺/花笺.exe' -Destination "release-assets/floral-notepaper_${version}_windows_x64_portable.exe"
+          Copy-Item -LiteralPath '交付/知行/知行.exe' -Destination "release-assets/floral-notepaper_${version}_windows_x64_portable.exe"
       - name: Build Apple Silicon application
         if: runner.os == 'macOS'
         env:
@@ -78,7 +78,7 @@ jobs:
           CARGO_PROFILE_RELEASE_STRIP: symbols
         run: |
           npm run tauri -- build --target aarch64-apple-darwin --bundles app,dmg
-          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/花笺.app"
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/知行.app"
           codesign --verify --deep --strict "$APP"
           test -x "$APP/Contents/MacOS/floral-notepaper"
           mkdir -p release-assets

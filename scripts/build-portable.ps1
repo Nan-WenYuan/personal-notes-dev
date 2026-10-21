@@ -22,11 +22,11 @@ try {
     if (-not (Test-Path -LiteralPath $binary)) { throw "Executable missing: $binary" }
     if ($BuildOnly) { Write-Output "BUILT_EXECUTABLE=$binary"; return }
     $timestamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time').ToString('yyMMdd_HHmmss')
-    $outputDir = Join-Path $repoRoot "交付/花笺"
-    $outputExe = Join-Path $outputDir "花笺.exe"
-    if (@(Get-Process | Where-Object { $_.Path -eq $outputExe }).Count -gt 0) { throw "请先退出正在运行的花笺；配置和数据不会修改。" }
+    $outputDir = Join-Path $repoRoot "交付/知行"
+    $outputExe = Join-Path $outputDir "知行.exe"
+    if (@(Get-Process | Where-Object { $_.Path -eq $outputExe }).Count -gt 0) { throw "请先退出正在运行的知行；配置和数据不会修改。" }
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-    Copy-Item -LiteralPath $binary -Destination (Join-Path $outputDir '花笺.exe')
+    Copy-Item -LiteralPath $binary -Destination (Join-Path $outputDir '知行.exe')
     $licensesDir = Join-Path $outputDir '许可证'
     New-Item -ItemType Directory -Path $licensesDir -Force | Out-Null
     foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md')) {
@@ -38,7 +38,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repoRoot "public/book-engine/$readerLicense") -Destination $licensesDir
     }
     Write-Output "PORTABLE_OUTPUT=$outputDir"
-    Get-Item -LiteralPath (Join-Path $outputDir '花笺.exe') | Select-Object FullName, Length
+    Get-Item -LiteralPath (Join-Path $outputDir '知行.exe') | Select-Object FullName, Length
 } finally {
     $env:CARGO_PROFILE_RELEASE_STRIP = $oldStrip
     $env:NOTES_PORTABLE_BUILD = $oldPortable

@@ -29,7 +29,7 @@ describe("AboutPanel", () => {
     const markup = renderToStaticMarkup(<AboutPanel onClose={vi.fn()} />);
 
     expect(markup).toContain("关于");
-    expect(markup).toContain("花笺");
+    expect(markup).toContain("知行");
     expect(markup).toContain("自用开发版本");
     expect(markup).toContain("更新");
     // Update status has not hydrated yet: the update section shows a loading

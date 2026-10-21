@@ -24,10 +24,10 @@ jobs:
           ZIP=$(find source -name '*.zip' -print -quit)
           test -n "$ZIP"
           ditto -x -k "$ZIP" staging
-          codesign --verify --deep --strict staging/花笺.app
+          codesign --verify --deep --strict staging/知行.app
           ln -s /Applications staging/Applications
-          hdiutil create -volname 花笺 -srcfolder staging -ov -format UDZO output/花笺-macOS-M系列.dmg
-          hdiutil verify output/花笺-macOS-M系列.dmg
+          hdiutil create -volname 知行 -srcfolder staging -ov -format UDZO output/知行-macOS-M系列.dmg
+          hdiutil verify output/知行-macOS-M系列.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg

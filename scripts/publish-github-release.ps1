@@ -6,7 +6,7 @@ $repository = 'Nan-WenYuan/personal-notes-dev'
 $version = (Get-Content (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
 $binary = Get-Item -LiteralPath $Executable
 if ($binary.VersionInfo.ProductVersion -ne $version) { throw 'Executable version differs from package.json' }
-$assetName = 'Huajian.exe'
+$assetName = 'Zhixing.exe'
 $encodedAssetName = [Uri]::EscapeDataString($assetName)
 $tag = "v$version"
 $temporaryDir = Join-Path $repoRoot 'Docs/临时/GitHub发布'
@@ -14,7 +14,7 @@ New-Item -ItemType Directory -Path $temporaryDir -Force | Out-Null
 $manifestPath = Join-Path $temporaryDir 'update-manifest.json'
 $hash = (Get-FileHash -LiteralPath $binary.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 $manifest = @{
-    schemaVersion=1; appId='com.floral-notepaper.app'; productName='花笺'; channel='stable'
+    schemaVersion=1; appId='com.floral-notepaper.app'; productName='知行'; channel='stable'
     version=$version; tag=$tag; publishedAt=[DateTimeOffset]::UtcNow.ToString('o')
     mandatory=$false; allowDowngrade=$false
     releaseNotes=$ReleaseNotes
@@ -46,7 +46,7 @@ try {
         Write-Output "Already published: $tag; existing release assets preserved"
         return
     }
-    $body = @{ tag_name=$tag; target_commitish=$Target; name="花笺 $version 自用便携版"; draft=$true; prerelease=$false
+    $body = @{ tag_name=$tag; target_commitish=$Target; name="知行 $version 自用便携版"; draft=$true; prerelease=$false
         body="$ReleaseNotes`n`n自用笔记软件开发。Windows x64 便携 EXE，无安装包、无压缩包。所需许可文本位于源码 LICENSE 与 src/assets/fonts。旧版首次切换只替换 EXE，保留配置和数据目录。1.4.0 起支持本仓库应用内更新。SHA256: $hash" } | ConvertTo-Json
     if ($existingRelease) {
         $release = $existingRelease

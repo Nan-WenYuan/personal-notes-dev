@@ -170,7 +170,7 @@ fn sync_window(app: &AppHandle) -> Result<(), AppError> {
             LABEL,
             WebviewUrl::App("index.html?view=pomodoro-desktop".into()),
         )
-        .title("花笺 · 番茄钟")
+        .title("知行 · 番茄钟")
         .inner_size(WIDTH, height)
         .resizable(false)
         .decorations(false)

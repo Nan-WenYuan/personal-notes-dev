@@ -83,7 +83,7 @@ export function AboutPanel({ onClose }: AboutPanelProps) {
       <div className="flex-1 overflow-y-auto scrollbar-hidden px-4 py-4 space-y-5">
         <section className="space-y-1.5">
           <h3 className="text-[20px] font-serif font-medium text-ink-soft">
-            {t("about.productName", { defaultValue: "花笺" })}
+            {t("about.productName", { defaultValue: "知行" })}
           </h3>
           <p className="text-[12px] text-bamboo font-body">
             {t("about.edition", { defaultValue: "自用开发版本" })}

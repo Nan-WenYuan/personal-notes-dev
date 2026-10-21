@@ -18,9 +18,9 @@ impl Locale {
 
 pub fn app_name(locale: Locale) -> &'static str {
     match locale {
-        Locale::ZhCn => "花笺",
-        Locale::EnUs => "Floral Notepaper",
-        Locale::ZhHk => "花箋",
+        Locale::ZhCn => "知行",
+        Locale::EnUs => "知行",
+        Locale::ZhHk => "知行",
     }
 }
 
@@ -30,17 +30,17 @@ pub fn main_window_title(locale: Locale) -> &'static str {
 
 pub fn notepad_window_title(locale: Locale) -> &'static str {
     match locale {
-        Locale::ZhCn => "花笺便签",
-        Locale::EnUs => "Floral Notepaper Quick Note",
-        Locale::ZhHk => "花箋便箋",
+        Locale::ZhCn => "知行便签",
+        Locale::EnUs => "知行 Quick Note",
+        Locale::ZhHk => "知行便箋",
     }
 }
 
 pub fn tile_window_title(locale: Locale) -> &'static str {
     match locale {
-        Locale::ZhCn => "花笺磁贴",
-        Locale::EnUs => "Floral Notepaper Pin Mode",
-        Locale::ZhHk => "花箋磁貼",
+        Locale::ZhCn => "知行磁贴",
+        Locale::EnUs => "知行 Pin Mode",
+        Locale::ZhHk => "知行磁貼",
     }
 }
 
@@ -263,16 +263,13 @@ mod tests {
 
     #[test]
     fn localizes_native_shell_strings_for_supported_locales() {
-        assert_eq!(app_name(Locale::ZhCn), "花笺");
-        assert_eq!(app_name(Locale::EnUs), "Floral Notepaper");
-        assert_eq!(app_name(Locale::ZhHk), "花箋");
+        assert_eq!(app_name(Locale::ZhCn), "知行");
+        assert_eq!(app_name(Locale::EnUs), "知行");
+        assert_eq!(app_name(Locale::ZhHk), "知行");
 
-        assert_eq!(
-            notepad_window_title(Locale::EnUs),
-            "Floral Notepaper Quick Note"
-        );
-        assert_eq!(tile_window_title(Locale::ZhHk), "花箋磁貼");
-        assert_eq!(tray_tooltip(Locale::EnUs), "Floral Notepaper");
+        assert_eq!(notepad_window_title(Locale::EnUs), "知行 Quick Note");
+        assert_eq!(tile_window_title(Locale::ZhHk), "知行磁貼");
+        assert_eq!(tray_tooltip(Locale::EnUs), "知行");
         assert_eq!(tray_show_main_label(Locale::EnUs), "Open Main Window");
         assert_eq!(tray_quick_note_label(Locale::ZhHk), "快速便箋");
         assert_eq!(
@@ -290,18 +287,12 @@ mod tests {
         assert_eq!(macos_menu_view_label(Locale::EnUs), "View");
         assert_eq!(macos_menu_window_label(Locale::ZhHk), "視窗");
         assert_eq!(macos_menu_help_label(Locale::ZhCn), "帮助");
-        assert_eq!(macos_menu_about_label(Locale::ZhCn), "关于花笺");
-        assert_eq!(
-            macos_menu_about_label(Locale::EnUs),
-            "About Floral Notepaper"
-        );
+        assert_eq!(macos_menu_about_label(Locale::ZhCn), "关于知行");
+        assert_eq!(macos_menu_about_label(Locale::EnUs), "About 知行");
         assert_eq!(macos_menu_services_label(Locale::ZhHk), "服務");
-        assert_eq!(macos_menu_hide_app_label(Locale::ZhCn), "隐藏花笺");
+        assert_eq!(macos_menu_hide_app_label(Locale::ZhCn), "隐藏知行");
         assert_eq!(macos_menu_hide_others_label(Locale::EnUs), "Hide Others");
-        assert_eq!(
-            macos_menu_quit_app_label(Locale::EnUs),
-            "Quit Floral Notepaper"
-        );
+        assert_eq!(macos_menu_quit_app_label(Locale::EnUs), "Quit 知行");
         assert_eq!(macos_menu_close_window_label(Locale::ZhHk), "關閉視窗");
         assert_eq!(macos_menu_minimize_label(Locale::EnUs), "Minimize");
         assert_eq!(macos_menu_zoom_label(Locale::ZhCn), "缩放");

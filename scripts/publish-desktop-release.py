@@ -24,7 +24,7 @@ def main():
         platforms.append(("macos", "aarch64", "app_zip", "macos_aarch64.dmg"))
     for platform, arch, kind, suffix in platforms:
         source_name = f"floral-notepaper_{version}_{suffix}"
-        name = "Huajian.exe" if platform == "windows" else "Huajian-macOS.dmg"
+        name = "Zhixing.exe" if platform == "windows" else "Zhixing-macOS.dmg"
         path = folder / source_name
         if not path.exists():
             path = folder / name
@@ -37,11 +37,11 @@ def main():
                            githubUrl=f"https://github.com/{repo}/releases/download/{tag}/{urllib.parse.quote(name)}"))
         if path.name != name:
             path.rename(folder / name)
-    notes = "新增 Apple Silicon macOS DMG 及应用内更新；Windows 便携版同步发布。Mac 使用 ad-hoc 签名，未经过 Apple 公证，尚需实机验证。打开 DMG 后将花笺拖到应用程序目录，数据保存在用户目录。"
+    notes = "新增 Apple Silicon macOS DMG 及应用内更新；Windows 便携版同步发布。Mac 使用 ad-hoc 签名，未经过 Apple 公证，尚需实机验证。打开 DMG 后将知行拖到应用程序目录，数据保存在用户目录。"
     if "--include-mac" not in sys.argv:
-        notes = "Windows 便携版更新，直接运行 Huajian.exe；应用内更新只替换程序并保留数据。"
+        notes = "Windows 便携版更新，直接运行 Zhixing.exe；应用内更新只替换程序并保留数据。"
     notes = os.environ.get("RELEASE_NOTES", notes)
-    manifest = dict(schemaVersion=1, appId="com.floral-notepaper.app", productName="花笺",
+    manifest = dict(schemaVersion=1, appId="com.floral-notepaper.app", productName="知行",
                     channel="stable", version=version, tag=tag,
                     publishedAt=datetime.now(timezone.utc).isoformat(), mandatory=False,
                     allowDowngrade=False, releaseNotes=notes, assets=assets)
@@ -67,7 +67,7 @@ def main():
         return
     if not release:
         release = request("POST", api, dict(tag_name=tag, target_commitish=os.environ["GITHUB_SHA"],
-                          name=f"花笺 {version}", body=notes, draft=True, prerelease=False))
+                          name=f"知行 {version}", body=notes, draft=True, prerelease=False))
     names = {a["name"] for a in assets} | {"update-manifest.json"}
     for existing in release["assets"]:
         if existing["name"] in names:
