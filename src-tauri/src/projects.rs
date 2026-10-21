@@ -259,6 +259,40 @@ pub fn projects_upsert(
     Ok(projects)
 }
 
+#[tauri::command]
+pub fn projects_reorder(ids: Vec<String>) -> Result<Vec<Project>, AppError> {
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _trash_guard = crate::recycle_bin::lock();
+    let path = default_store()?.data_dir().join("项目.json");
+    let mut projects = read(&path)?;
+    reorder(&mut projects, &ids)?;
+    crate::json_io::write_json_atomic(&path, &projects)?;
+    Ok(projects)
+}
+
+// Only replace the selected slots, so sorting search results leaves hidden projects in place.
+fn reorder(projects: &mut [Project], ids: &[String]) -> Result<(), AppError> {
+    let selected: std::collections::HashSet<_> = ids.iter().collect();
+    if selected.len() != ids.len() || ids.iter().any(|id| !projects.iter().any(|p| &p.id == id)) {
+        return Err(AppError {
+            code: "project".into(),
+            message: "项目列表已变化，请刷新后重试".into(),
+            details: Default::default(),
+        });
+    }
+    let ordered: Vec<_> = ids
+        .iter()
+        .map(|id| projects.iter().find(|p| &p.id == id).unwrap().clone())
+        .collect();
+    let mut ordered = ordered.into_iter();
+    for project in projects.iter_mut() {
+        if selected.contains(&project.id) {
+            *project = ordered.next().unwrap();
+        }
+    }
+    Ok(())
+}
+
 fn update(
     projects: &mut Vec<Project>,
     id: Option<String>,
@@ -304,6 +338,48 @@ fn update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reordering_filtered_projects_preserves_contents_and_survives_reload() {
+        let mut rows = vec![];
+        for name in ["项目 A", "隐藏项目", "项目 B", "项目 C"] {
+            update(&mut rows, None, name.into(), Status::Active).unwrap();
+        }
+        rows[2].note_ids.push("最新笔记".into());
+        let original = serde_json::to_value(&rows).unwrap();
+        let ids = [3, 0, 2].map(|i| rows[i].id.clone());
+        reorder(&mut rows, &ids).unwrap();
+        let dir = std::env::temp_dir().join(format!("project-order-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("项目.json");
+        crate::json_io::write_json_atomic(&path, &rows).unwrap();
+        let loaded = read(&path).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let result = serde_json::to_value(&loaded).unwrap();
+        for (new, old) in [3, 1, 0, 2].into_iter().enumerate() {
+            assert_eq!(result[new], original[old]);
+        }
+        // Later edits preserve the manually chosen order.
+        update(
+            &mut rows,
+            Some(ids[1].clone()),
+            "改名".into(),
+            Status::Paused,
+        )
+        .unwrap();
+        assert_eq!(rows[2].id, ids[1]);
+    }
+
+    #[test]
+    fn invalid_reorder_does_not_mutate_projects() {
+        let mut rows = vec![];
+        update(&mut rows, None, "项目".into(), Status::Active).unwrap();
+        let original = serde_json::to_value(&rows).unwrap();
+        let id = rows[0].id.clone();
+        assert!(reorder(&mut rows, &[id.clone(), id.clone()]).is_err());
+        assert!(reorder(&mut rows, &[id, "已删除的项目".into()]).is_err());
+        assert_eq!(serde_json::to_value(&rows).unwrap(), original);
+    }
+
     #[test]
     fn requirement_stages_migrate_and_roundtrip() {
         let mut legacy: ProjectTask =

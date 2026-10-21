@@ -2,9 +2,10 @@ import type { OpenProjectNote } from "./ProjectNotes";
 import { flushProjectNotes } from "../features/notes/projectNoteStorage";
 import type { ProjectNote } from "../features/notes/projectNoteStorage";
 import { ProjectPage, requirementStage, type ProjectTask } from "./ProjectPage";
+import { useProjectDrag } from "./useProjectDrag";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Folder, Plus, Search, MoreHorizontal, Check, X } from "lucide-react";
+import { Folder, Plus, Search, MoreHorizontal, Check, X, GripVertical } from "lucide-react";
 import { getErrorMessage, listNotes } from "../features/notes/api";
 import "./ProjectList.css";
 
@@ -46,6 +47,10 @@ export function ProjectList({
   const savingRef = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLTableRowElement>(null);
+  const [reordering, setReordering] = useState(false);
+  const [orderError, setOrderError] = useState("");
+  const saveRef = useRef<(restoreFocus?: boolean) => Promise<void>>(async () => {});
   async function load() {
     setLoading(true);
     setError("");
@@ -70,18 +75,33 @@ export function ProjectList({
       inputRef.current?.scrollIntoView({ block: "nearest" });
     }
   }, [draft?.id, !!draft]);
+  useEffect(() => {
+    if (!draft) return;
+    const outside = (event: Event) => {
+      if (event.target instanceof Node && !editorRef.current?.contains(event.target)) {
+        void saveRef.current(false);
+      }
+    };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("focusin", outside);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("focusin", outside);
+    };
+  }, [!!draft]);
   function edit(value: NonNullable<typeof draft>) {
     trigger.current = document.activeElement as HTMLElement;
     setSaveError("");
     setDraft(value);
   }
-  function close() {
+  function close(restoreFocus = true) {
     if (savingRef.current) return;
     setSaveError("");
     setDraft(null);
-    requestAnimationFrame(() => trigger.current?.isConnected && trigger.current.focus());
+    if (restoreFocus)
+      requestAnimationFrame(() => trigger.current?.isConnected && trigger.current.focus());
   }
-  async function save() {
+  async function save(restoreFocus = true) {
     if (!draft || savingRef.current || !draft.name.trim()) return;
     savingRef.current = true;
     setSaving(true);
@@ -96,7 +116,7 @@ export function ProjectList({
       setQuery("");
       setFilter("all");
       savingRef.current = false;
-      close();
+      close(restoreFocus);
     } catch (e) {
       setSaveError(getErrorMessage(e));
     } finally {
@@ -104,18 +124,30 @@ export function ProjectList({
       setSaving(false);
     }
   }
-  const visible = projects
-    .filter(
-      (p) =>
-        p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) &&
-        (filter === "all" ||
-          (filter === "active"
-            ? p.status === "active" || p.status === "maintenance"
-            : p.status === "archived")),
-    )
-    .sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name));
+  saveRef.current = save;
+  const visible = projects.filter(
+    (p) =>
+      p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) &&
+      (filter === "all" ||
+        (filter === "active"
+          ? p.status === "active" || p.status === "maintenance"
+          : p.status === "archived")),
+  );
+  const projectDrag = useProjectDrag(visible, async (ids) => {
+    setReordering(true);
+    setOrderError("");
+    try {
+      setProjects(await invoke<Project[]>("projects_reorder", { ids }));
+    } catch (e) {
+      setOrderError(getErrorMessage(e));
+    } finally {
+      setReordering(false);
+    }
+  });
+  const busy = reordering || !!projectDrag.view;
   const editorRow = draft && (
     <tr
+      ref={editorRef}
       className="project-inline-row"
       key={draft.id ?? "new"}
       onKeyDown={(e) => {
@@ -180,7 +212,12 @@ export function ProjectList({
           >
             <Check size={16} />
           </button>
-          <button aria-label="取消编辑" title="取消（Esc）" disabled={saving} onClick={close}>
+          <button
+            aria-label="取消编辑"
+            title="取消（Esc）"
+            disabled={saving}
+            onClick={() => close()}
+          >
             <X size={16} />
           </button>
         </div>
@@ -204,11 +241,12 @@ export function ProjectList({
       className="project-list absolute inset-0 z-10 flex flex-col bg-cloud"
       aria-label="项目管理"
     >
+      {projectDrag.overlay}
       <header>
         <h1>项目</h1>
         <button
           className="project-new"
-          disabled={loading || !!error || !!draft}
+          disabled={loading || !!error || !!draft || busy}
           onClick={() => edit({ name: "", status: "active" })}
         >
           <Plus size={16} />
@@ -219,14 +257,14 @@ export function ProjectList({
         <label className="project-search">
           <Search size={16} />
           <input
-            disabled={!!draft}
+            disabled={!!draft || busy}
             aria-label="搜索项目"
             placeholder="搜索项目…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           {query && (
-            <button disabled={!!draft} aria-label="清除搜索" onClick={() => setQuery("")}>
+            <button disabled={!!draft || busy} aria-label="清除搜索" onClick={() => setQuery("")}>
               <X size={14} />
             </button>
           )}
@@ -238,7 +276,7 @@ export function ProjectList({
             ["archived", "已归档"],
           ].map(([key, label]) => (
             <button
-              disabled={!!draft}
+              disabled={!!draft || busy}
               key={key}
               aria-pressed={filter === key}
               onClick={() => setFilter(key)}
@@ -248,7 +286,19 @@ export function ProjectList({
           ))}
         </div>
       </div>
-      <div className="project-table-scroll">
+      {orderError && (
+        <p className="project-inline-error" role="alert">
+          {orderError}
+        </p>
+      )}
+      <div
+        className={`project-table-scroll${projectDrag.view ? " is-project-dragging" : ""}`}
+        ref={projectDrag.boardRef}
+        onPointerMove={projectDrag.move}
+        onPointerUp={() => void projectDrag.finish()}
+        onPointerCancel={projectDrag.cancel}
+        onLostPointerCapture={projectDrag.cancel}
+      >
         <table>
           <thead>
             <tr>
@@ -264,31 +314,54 @@ export function ProjectList({
           </thead>
           <tbody>
             {draft && !draft.id && editorRow}
-            {visible.map((p) =>
+            {projectDrag.preview.map((p) =>
               draft?.id === p.id ? (
                 editorRow
+              ) : projectDrag.view?.id === p.id ? (
+                <tr
+                  key={p.id}
+                  data-project-placeholder
+                  className="project-drag-placeholder"
+                  style={{ height: projectDrag.view.height }}
+                >
+                  <td colSpan={6} />
+                </tr>
               ) : (
                 <tr
                   key={p.id}
+                  data-project-row={p.id}
                   className={!draft ? "project-clickable" : ""}
                   onDoubleClick={() => {
-                    if (!draft) setSelectedId(p.id);
+                    if (!draft && !busy) setSelectedId(p.id);
                   }}
                 >
                   <td>
-                    <button
-                      disabled={!!draft}
-                      className="project-name project-open"
-                      title={`${p.name}（双击进入）`}
-                      aria-label={`打开项目 ${p.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (e.detail === 0) setSelectedId(p.id);
-                      }}
-                    >
-                      <Folder size={17} />
-                      <span>{p.name}</span>
-                    </button>
+                    <div className="project-name-cell">
+                      <button
+                        className="project-drag-handle"
+                        aria-label={`拖动排序 ${p.name}`}
+                        title="拖动排序"
+                        disabled={!!draft || reordering}
+                        onPointerDown={(e) => projectDrag.start(e, p.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                      <button
+                        disabled={!!draft || busy}
+                        className="project-name project-open"
+                        title={`${p.name}（双击进入）`}
+                        aria-label={`打开项目 ${p.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (e.detail === 0) setSelectedId(p.id);
+                        }}
+                      >
+                        <Folder size={17} />
+                        <span>{p.name}</span>
+                      </button>
+                    </div>
                   </td>
                   <td>
                     <span className={`project-status ${p.status}`}>{statuses[p.status]}</span>
@@ -312,7 +385,7 @@ export function ProjectList({
                   </td>
                   <td>
                     <button
-                      disabled={!!draft}
+                      disabled={!!draft || busy}
                       className="project-edit"
                       aria-label={`编辑项目 ${p.name}`}
                       title="编辑名称与状态"

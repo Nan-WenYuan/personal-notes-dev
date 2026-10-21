@@ -741,6 +741,7 @@ pub fn run() {
             projects::projects_save_content,
             projects::projects_load,
             projects::projects_upsert,
+            projects::projects_reorder,
             quadrants_load,
             quadrants_save,
             pomodoro::pomodoro_load,
