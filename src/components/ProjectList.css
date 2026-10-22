@@ -119,7 +119,7 @@
   font-variant-numeric: tabular-nums;
 }
 .project-list th:last-child {
-  width: 52px;
+  width: 80px;
 }
 .project-list td,
 .project-list th {
@@ -228,6 +228,7 @@
 }
 .project-inline-actions button {
   display: flex;
+  flex-shrink: 0;
   padding: 4px;
   border-radius: 4px;
   color: var(--color-bamboo);
