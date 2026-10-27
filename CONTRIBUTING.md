@@ -32,6 +32,29 @@ npm run tauri dev
 npm run tauri build
 ```
 
+### 编译缓存管理（Windows）
+
+开发和测试默认关闭 Rust 增量编译，并仅保留回溯所需的文件和行号信息，以减少磁盘占用；修改后的 Rust 重编译可能更慢，调试器无法查看完整变量信息。排查需要完整调试信息的问题时，可在当前终端临时设置 `CARGO_PROFILE_DEV_DEBUG=2`，结束后移除此变量。
+
+Windows 的 `npm run dev`、`npm run build` 在启动前自动检查可清理的 Rust 编译缓存，Tauri 的开发/打包入口也会通过现有 beforeDevCommand/beforeBuildCommand 调用这些命令。缓存超过默认 **10 GiB** 时自动清理；未超过时保留以复用依赖。配置、数据、现有程序及安装包不计入阈值。若有 Cargo/rustc 或 target 中的程序正在运行，则延后到后续构建入口检查，不在编译或程序运行期间清理。
+
+这是构建前检查，不是实时磁盘硬上限；单次编译可暂时超过阈值。直接运行 `cargo build/test/check`、跳过 npm 生命周期（如 `--ignore-scripts`）或覆盖 Tauri 前置命令时，不会触发检查。跨架构及自定义 profile 目录也需另行检查。
+
+可在当前终端修改阈值，例如 `$env:ZHIXING_RUST_CACHE_LIMIT_GIB = '15'`；移除此变量恢复默认值。需要主动清理时仍可运行：
+
+```powershell
+# 预览清理范围
+npm run clean:rust -- -WhatIf
+# 清理缓存
+npm run clean:rust
+```
+
+手动清理前退出编译任务及从 `target` 运行的开发版程序。命令只清理 `src-tauri/target/debug` 和 `release` 中明确的编译缓存、中间库和调试符号，保留 EXE、DLL、配置、数据、安装包及其他未知目录，并校验保留文件的 SHA256。清理后首次编译会重新构建依赖。日常修改会复用未变化的依赖，并非每次都增加一整套缓存；依赖升级、编译参数或工具链变化仍会累积不同产物。
+
+清理机制的隔离回归：`node --test scripts/test-rust-cache.mjs`（Windows），使用临时样例验证阈值分支、配置数据保护、预览不删除与目录联接拒绝，不操作真实数据。
+
+不要直接删除整个 `src-tauri/target` 或运行 `cargo clean`：便携开发版的配置和数据也可能保存在程序旁边。
+
 ## 分支与提交规范
 
 本项目采用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 规范。

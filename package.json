@@ -1,6 +1,6 @@
 {
   "name": "personal-notes-dev",
-  "version": "1.13.1",
+  "version": "1.13.2",
   "private": true,
   "description": "知行自用开发版本：个人笔记与知识库",
   "homepage": "https://github.com/Nan-WenYuan/personal-notes-dev",
@@ -14,13 +14,16 @@
   },
   "type": "module",
   "scripts": {
+    "predev": "node scripts/check-rust-cache.mjs",
     "dev": "node scripts/prepare-editor-assets.mjs && node scripts/prepare-reader-assets.mjs && node scripts/fetch-contributors.mjs && vite",
+    "prebuild": "node scripts/check-rust-cache.mjs",
     "build": "node scripts/prepare-editor-assets.mjs && node scripts/prepare-reader-assets.mjs && node scripts/fetch-contributors.mjs && tsc && vite build",
     "test": "vitest run",
     "lint": "oxlint",
     "fmt": "oxfmt",
     "preview": "vite preview",
     "tauri": "tauri",
+    "clean:rust": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-rust-cache.ps1",
     "version:sync": "node scripts/set-version.mjs",
     "prepare": "husky"
   },

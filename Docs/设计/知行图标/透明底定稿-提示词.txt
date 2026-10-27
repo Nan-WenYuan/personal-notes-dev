@@ -1,0 +1,9 @@
+生成方式：内置 image_gen
+编辑输入：用户选定参考-20261025.png
+输出：知行图标源图.png
+
+Use case: background-extraction / identity-preserve.
+EDIT THE ATTACHED IMAGE. It is the user's FINAL CHOSEN desktop app icon, not inspiration.
+Remove ONLY the flat dark charcoal backdrop outside the blue icon and make it genuinely transparent. Produce a clean high-resolution square RGBA application-icon master with smooth alpha edges, suitable for 16–256px Windows icon sizes.
+Preserve the actual icon precisely: the single compact rounded document/file card; integrated low upper-left tab/shoulder; same slight perspective and orientation; same thick softly beveled silhouette; exact blue-to-indigo/purple coloration (cyan-blue highlights on the upper-left/top edges, royal-blue front blending into deep indigo-violet lower/right areas); same rounded WHITE horizontal stroke in the upper half; same WHITE checkmark lower-left; same small light cyan-blue horizontal pill lower-right. Preserve placement, spacing, relative sizes, gloss, shading and three-dimensional volume. Do NOT change the colors to plain cyan or generic blue, do NOT flatten the lighting, add elements, change perspective, reshape the tab, add writing lines, add a tile or redesign it. There is exactly ONE white horizontal bar, ONE white checkmark and ONE cyan short bar.
+Discard any backdrop/cast shadow outside the object while retaining its internal shadows and lit bevels. Center the complete original object on a square transparent canvas with balanced ~10% transparent margins. No clipping, no black matte, no white background, no checkerboard baked into the image, no text, no new symbol. This is faithful production cleanup of this particular chosen image.

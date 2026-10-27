@@ -1,12 +1,18 @@
 [package]
 name = "floral-notepaper"
-version = "1.13.1"
+version = "1.13.2"
 description = "Personal development edition for local notes and knowledge management"
 authors = ["Nan-WenYuan", "Achilng"]
 repository = "https://github.com/Nan-WenYuan/personal-notes-dev"
 license = "MIT"
 edition = "2021"
 default-run = "floral-notepaper"
+
+# Keep local builds small; tests inherit the dev profile.
+# Retain file/line backtraces without full type and variable debug information.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
