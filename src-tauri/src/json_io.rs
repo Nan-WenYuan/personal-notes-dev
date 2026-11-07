@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::{
     fs,
     fs::OpenOptions,
-    io::Write,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -18,8 +18,12 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), App
         .write(true)
         .truncate(true)
         .open(&temp_path)?;
-    serde_json::to_writer_pretty(&mut temp_file, value)?;
-    temp_file.write_all(b"\n")?;
+    {
+        let mut writer = BufWriter::new(&mut temp_file);
+        serde_json::to_writer_pretty(&mut writer, value)?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
+    }
     temp_file.sync_all()?;
     drop(temp_file);
     fs::rename(&temp_path, path)?;

@@ -35,4 +35,25 @@ describe("project requirement movement", () => {
     expect(requirementStage(tasks[0])).toBe("backlog");
     expect(requirementStage(tasks[2])).toBe("done");
   });
+  it("archives and restores without losing task identity, content, schedule or other tasks", () => {
+    const archived = moveRequirement(tasks, "b", "done", null);
+    expect(archived).toHaveLength(tasks.length);
+    expect(archived.find((task) => task.id === "b")).toEqual({
+      ...tasks[1],
+      completed: true,
+      stage: "done",
+    });
+    const restored = moveRequirement(JSON.parse(JSON.stringify(archived)), "b", "backlog", null);
+    expect(restored.find((task) => task.id === "b")).toEqual({
+      ...tasks[1],
+      completed: false,
+      stage: "backlog",
+    });
+    expect(restored.filter((task) => task.id !== "b")).toEqual(
+      tasks.filter((task) => task.id !== "b"),
+    );
+    const legacyRestored = moveRequirement(tasks, "c", "backlog", null);
+    expect(requirementStage(legacyRestored.find((task) => task.id === "c")!)).toBe("backlog");
+    expect(legacyRestored.find((task) => task.id === "c")?.completed).toBe(false);
+  });
 });

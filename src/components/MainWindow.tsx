@@ -6,7 +6,7 @@ import { ProjectBookNavigation } from "./ProjectBookNavigation";
 import { flushProjectNotes } from "../features/notes/projectNoteStorage";
 import { ProjectList } from "./ProjectList";
 import { useNoteCategoryDrag } from "../features/notes/useNoteCategoryDrag";
-import { FolderPlus, Bot, StickyNote, Inbox, Folder, Trash2 } from "lucide-react";
+import { FolderPlus, Bot, StickyNote, Inbox, Folder, Trash2, Plus } from "lucide-react";
 import { saveCategoryOrder } from "../features/notes/api";
 import { editorTools } from "../features/markdown/toolbarAppearance";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -1617,6 +1617,7 @@ export function MainWindow({
     if (!(await saveCurrentNote())) return;
     try {
       const note = await createNote({ title: "", content: "", category });
+      setSearchQuery("");
       setCollapsedCategories((current) => {
         const next = new Set(current);
         next.delete(category);
@@ -3247,6 +3248,12 @@ export function MainWindow({
 
                   {categoryGroups.map((group: CategoryGroup) => {
                     const isCollapsed = collapsedCategories.has(group.category);
+                    const newNoteLabel = t("main.category.newNote", {
+                      category:
+                        group.category ||
+                        t("main.category.uncategorized", { defaultValue: "未分类" }),
+                      defaultValue: "在「{{category}}」中新建笔记",
+                    });
 
                     return (
                       <div
@@ -3370,6 +3377,20 @@ export function MainWindow({
                           <span className="text-[9px] text-bamboo/40 font-mono ml-auto shrink-0">
                             {group.notes.length}
                           </span>
+                          <button
+                            type="button"
+                            className="category-new-note -my-1 flex h-5 w-5 shrink-0 items-center justify-center rounded cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default"
+                            title={newNoteLabel}
+                            aria-label={newNoteLabel}
+                            disabled={renamingCategory === group.category}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleNewNote(group.category);
+                            }}
+                          >
+                            <Plus size={13} strokeWidth={1.8} aria-hidden="true" />
+                          </button>
                         </div>
 
                         <div className={`category-body ${isCollapsed ? "" : "expanded"}`}>
@@ -3566,222 +3587,228 @@ export function MainWindow({
             {pomodoroOpen && <PomodoroBoard timer={pomodoro} />}
             {selectedId ? (
               <>
-                <div className="main-editor-actions relative z-[2] flex items-center gap-2 px-4 min-h-10 py-1 border-b border-paper-deep/20 shrink-0 bg-paper/20">
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
-                      title={
-                        sidebarCollapsed
-                          ? t("main.window.expandSidebar", { defaultValue: "展开侧栏" })
-                          : t("main.window.collapseSidebar", { defaultValue: "收起侧栏" })
-                      }
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                <div className="main-editor-toolbar-container relative z-[2] shrink-0">
+                  <div className="main-editor-actions flex items-center gap-2 px-4 min-h-10 py-1 border-b border-paper-deep/20 bg-paper/20">
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
+                        title={
+                          sidebarCollapsed
+                            ? t("main.window.expandSidebar", { defaultValue: "展开侧栏" })
+                            : t("main.window.collapseSidebar", { defaultValue: "收起侧栏" })
+                        }
                       >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <line x1="9" y1="3" x2="9" y2="21" />
-                      </svg>
-                    </button>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <line x1="9" y1="3" x2="9" y2="21" />
+                        </svg>
+                      </button>
 
-                    <div className="h-4 w-px bg-paper-deep/30 mx-1" />
+                      <div className="h-4 w-px bg-paper-deep/30 mx-1" />
 
-                    <button
-                      onClick={() => void handlePinEntry()}
-                      disabled={!selectedId}
-                      aria-label={pinTileButtonTitle()}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50"
-                      title={pinTileButtonTitle()}
-                    >
-                      <StickyNote size={13} aria-hidden="true" />
-                    </button>
-
-                    <button
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={handleUndo}
-                      disabled={!selectedId}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={t("main.editor.undo", { defaultValue: "撤销（Ctrl+Z）" })}
-                      aria-label={t("main.editor.undoLabel", { defaultValue: "撤销" })}
-                    >
-                      <svg
-                        data-testid="main-editor-undo-icon"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
+                      <button
+                        onClick={() => void handlePinEntry()}
+                        disabled={!selectedId}
+                        aria-label={pinTileButtonTitle()}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50"
+                        title={pinTileButtonTitle()}
                       >
-                        <path d="M9 14 4 9l5-5" />
-                        <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
-                      </svg>
-                    </button>
+                        <StickyNote size={13} aria-hidden="true" />
+                      </button>
 
-                    <button
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={handleRedo}
-                      disabled={!selectedId}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={t("main.editor.redo", { defaultValue: "重做（Ctrl+Y）" })}
-                      aria-label={t("main.editor.redoLabel", { defaultValue: "重做" })}
-                    >
-                      <svg
-                        data-testid="main-editor-redo-icon"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                        style={{ transform: "scaleX(-1)" }}
+                      <button
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={handleUndo}
+                        disabled={!selectedId}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={t("main.editor.undo", { defaultValue: "撤销（Ctrl+Z）" })}
+                        aria-label={t("main.editor.undoLabel", { defaultValue: "撤销" })}
                       >
-                        <path d="M9 14 4 9l5-5" />
-                        <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
-                      </svg>
-                    </button>
+                        <svg
+                          data-testid="main-editor-undo-icon"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M9 14 4 9l5-5" />
+                          <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
+                        </svg>
+                      </button>
 
-                    <button
-                      onClick={() => void saveCurrentNote(true)}
-                      disabled={saveState === "saving"}
-                      className="px-2.5 h-7 flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={t("common.save", { defaultValue: "保存" })}
-                    >
-                      {t("common.save", { defaultValue: "保存" })}
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        if (selectedId) void handleDeleteNotes([selectedId]);
-                      }}
-                      disabled={!selectedId || noteActionBusy}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-red-400 hover:bg-danger-bg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={t("noteMenu.delete", { defaultValue: "删除笔记" })}
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                      <button
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={handleRedo}
+                        disabled={!selectedId}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={t("main.editor.redo", { defaultValue: "重做（Ctrl+Y）" })}
+                        aria-label={t("main.editor.redoLabel", { defaultValue: "重做" })}
                       >
-                        <polyline points="3,6 5,6 21,6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
+                        <svg
+                          data-testid="main-editor-redo-icon"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          style={{ transform: "scaleX(-1)" }}
+                        >
+                          <path d="M9 14 4 9l5-5" />
+                          <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
+                        </svg>
+                      </button>
 
-                  <div className="main-editor-formatting flex-1 min-w-0">
-                    <div
-                      ref={setRichToolbarHost}
-                      className="rich-editor rich-editor-toolbar-host"
-                      style={{ display: viewMode === "wysiwyg" ? undefined : "none" }}
-                    />
-                    {(viewMode === "edit" || viewMode === "split") && (
-                      <div className="editor-toolbar flex flex-wrap items-center gap-0.5">
-                        {toolbarButtons
-                          .filter((button) => button.action !== "undo" && button.action !== "redo")
-                          .map((button) => (
-                            <button
-                              key={button.name}
-                              title={button.title}
-                              aria-label={button.title}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={async () => {
-                                if (button.action === "upload") {
-                                  const textarea = contentRef.current;
-                                  const noteId = selectedIdRef.current;
-                                  const originalValue = textarea?.value;
-                                  const start = textarea?.selectionStart ?? 0;
-                                  const end = textarea?.selectionEnd ?? start;
-                                  try {
-                                    const paths = await open({
-                                      multiple: true,
-                                      filters: [
-                                        {
-                                          name: "图片",
-                                          extensions: [
-                                            "png",
-                                            "jpg",
-                                            "jpeg",
-                                            "gif",
-                                            "webp",
-                                            "bmp",
-                                            "svg",
-                                          ],
-                                        },
-                                      ],
-                                    });
-                                    if (!paths || !noteId || selectedIdRef.current !== noteId)
-                                      return;
-                                    const id = await ensureNoteSaved();
-                                    if (!id) return;
-                                    const links = [];
-                                    for (const path of Array.isArray(paths) ? paths : [paths])
-                                      links.push(await saveImageFromPath(id, path));
-                                    if (
-                                      selectedIdRef.current !== noteId ||
-                                      contentRef.current !== textarea ||
-                                      !textarea
-                                    )
-                                      return;
-                                    textarea.focus();
-                                    if (textarea.value !== originalValue) {
-                                      throw new Error("图片处理期间正文已变化，请重新选择位置插入");
+                      <button
+                        onClick={() => void saveCurrentNote(true)}
+                        disabled={saveState === "saving"}
+                        className="px-2.5 h-7 flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={t("common.save", { defaultValue: "保存" })}
+                      >
+                        {t("common.save", { defaultValue: "保存" })}
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (selectedId) void handleDeleteNotes([selectedId]);
+                        }}
+                        disabled={!selectedId || noteActionBusy}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-red-400 hover:bg-danger-bg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={t("noteMenu.delete", { defaultValue: "删除笔记" })}
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="3,6 5,6 21,6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <div className="main-editor-formatting flex-1 min-w-0">
+                      <div
+                        ref={setRichToolbarHost}
+                        className="rich-editor rich-editor-toolbar-host"
+                        style={{ display: viewMode === "wysiwyg" ? undefined : "none" }}
+                      />
+                      {(viewMode === "edit" || viewMode === "split") && (
+                        <div className="editor-toolbar flex flex-wrap items-center gap-0.5">
+                          {toolbarButtons
+                            .filter(
+                              (button) => button.action !== "undo" && button.action !== "redo",
+                            )
+                            .map((button) => (
+                              <button
+                                key={button.name}
+                                title={button.title}
+                                aria-label={button.title}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={async () => {
+                                  if (button.action === "upload") {
+                                    const textarea = contentRef.current;
+                                    const noteId = selectedIdRef.current;
+                                    const originalValue = textarea?.value;
+                                    const start = textarea?.selectionStart ?? 0;
+                                    const end = textarea?.selectionEnd ?? start;
+                                    try {
+                                      const paths = await open({
+                                        multiple: true,
+                                        filters: [
+                                          {
+                                            name: "图片",
+                                            extensions: [
+                                              "png",
+                                              "jpg",
+                                              "jpeg",
+                                              "gif",
+                                              "webp",
+                                              "bmp",
+                                              "svg",
+                                            ],
+                                          },
+                                        ],
+                                      });
+                                      if (!paths || !noteId || selectedIdRef.current !== noteId)
+                                        return;
+                                      const id = await ensureNoteSaved();
+                                      if (!id) return;
+                                      const links = [];
+                                      for (const path of Array.isArray(paths) ? paths : [paths])
+                                        links.push(await saveImageFromPath(id, path));
+                                      if (
+                                        selectedIdRef.current !== noteId ||
+                                        contentRef.current !== textarea ||
+                                        !textarea
+                                      )
+                                        return;
+                                      textarea.focus();
+                                      if (textarea.value !== originalValue) {
+                                        throw new Error(
+                                          "图片处理期间正文已变化，请重新选择位置插入",
+                                        );
+                                      }
+                                      textarea.setSelectionRange(start, end);
+                                      insertTextAtCursor(
+                                        textarea,
+                                        setContent,
+                                        links.map((path) => `![](${path})`).join("\n") + "\n",
+                                      );
+                                      markDirty();
+                                    } catch (error) {
+                                      showToast(getErrorMessage(error));
                                     }
-                                    textarea.setSelectionRange(start, end);
-                                    insertTextAtCursor(
-                                      textarea,
-                                      setContent,
-                                      links.map((path) => `![](${path})`).join("\n") + "\n",
-                                    );
-                                    markDirty();
-                                  } catch (error) {
-                                    showToast(getErrorMessage(error));
+                                    return;
                                   }
-                                  return;
-                                }
-                                if (contentRef.current) {
-                                  applyFormat(
-                                    contentRef.current,
-                                    button.action,
-                                    t,
-                                    setContent,
-                                    markDirty,
-                                  );
-                                }
-                              }}
-                              className="w-6 h-6 flex items-center justify-center rounded text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
-                            >
-                              <button.icon size={14} strokeWidth={1.7} aria-hidden="true" />
-                            </button>
-                          ))}
-                      </div>
-                    )}
+                                  if (contentRef.current) {
+                                    applyFormat(
+                                      contentRef.current,
+                                      button.action,
+                                      t,
+                                      setContent,
+                                      markDirty,
+                                    );
+                                  }
+                                }}
+                                className="w-6 h-6 flex items-center justify-center rounded text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
+                              >
+                                <button.icon size={14} strokeWidth={1.7} aria-hidden="true" />
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    <SlidingButtonGroup
+                      options={viewModeOptions}
+                      value={viewMode}
+                      onChange={setViewMode}
+                      buttonClassName="px-3 py-1"
+                    />
                   </div>
-                  <SlidingButtonGroup
-                    options={viewModeOptions}
-                    value={viewMode}
-                    onChange={setViewMode}
-                    buttonClassName="px-3 py-1"
-                  />
                 </div>
 
                 <div

@@ -783,6 +783,17 @@ input::placeholder {
 [data-sidebar-kind] > .group\/cat > span {
   color: var(--sidebar-accent);
 }
+.category-new-note {
+  color: var(--sidebar-accent);
+}
+.category-new-note:hover:not(:disabled),
+.category-new-note:focus-visible {
+  background: color-mix(in srgb, var(--sidebar-accent) 18%, transparent);
+}
+.category-new-note:focus-visible {
+  outline: 1px solid var(--sidebar-accent);
+  outline-offset: 1px;
+}
 [data-sidebar-kind] .category-body-inner {
   border-color: color-mix(in srgb, var(--sidebar-accent) 18%, transparent);
   background: color-mix(in srgb, var(--sidebar-accent) 2%, transparent);

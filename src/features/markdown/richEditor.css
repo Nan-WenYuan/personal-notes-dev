@@ -32,8 +32,23 @@
   float: none;
   padding: 0;
 }
+.main-editor-toolbar-container {
+  container: editor-toolbar / inline-size;
+}
 .main-editor-actions > :last-child {
   flex-shrink: 0;
+  margin-left: auto;
+}
+/* Side panels and sidebar resizing change the editor width independently of the window. */
+@container editor-toolbar (max-width: 800px) {
+  .main-editor-actions {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .main-editor-formatting {
+    order: 1;
+    flex-basis: 100%;
+  }
 }
 .rich-editor-toolbar-host .vditor-toolbar {
   padding: 0 !important;

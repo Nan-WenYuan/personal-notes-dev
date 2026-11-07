@@ -77,6 +77,7 @@
       "delete": "Delete Category",
       "emptyFolder": "Empty Folder",
       "new": "New Category",
+      "newNote": "New note in {{category}}",
       "placeholder": "Enter category name…",
       "rename": "Rename",
       "uncategorized": "Uncategorized"

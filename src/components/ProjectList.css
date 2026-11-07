@@ -343,6 +343,14 @@
   min-height: 0;
   padding-bottom: 24px;
 }
+.project-page-body.is-management {
+  display: flex;
+  flex-direction: column;
+}
+.project-page-body.is-management > .project-add-task,
+.project-page-body.is-management > .project-board-hint {
+  flex-shrink: 0;
+}
 .project-add-task {
   display: flex;
   border: 1px solid var(--color-paper-deep);
@@ -773,29 +781,36 @@
   margin: 0 0 10px;
 }
 .project-requirement-board {
+  flex: 1 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
   gap: 12px;
   align-items: stretch;
   min-height: 260px;
 }
 .project-stage-column {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  border: 1px solid var(--color-paper-deep);
+  border: 1px solid color-mix(in srgb, var(--stage-color) 45%, var(--color-paper-deep));
+  border-top: 3px solid var(--stage-color);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-paper-warm) 40%, var(--color-cloud));
+  background: color-mix(in srgb, var(--stage-color) 4%, var(--color-cloud));
   transition:
     background 120ms,
     border-color 120ms;
 }
 .project-stage-column > header {
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-start;
   padding: 10px;
   margin: 0;
   gap: 7px;
-  border-bottom: 1px solid var(--color-paper-deep);
-  color: var(--color-ink-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--stage-color) 25%, var(--color-paper-deep));
+  border-radius: 5px 5px 0 0;
+  background: color-mix(in srgb, var(--stage-color) 9%, transparent);
+  color: var(--stage-color);
 }
 .project-stage-column h2 {
   font-size: 12px;
@@ -816,6 +831,7 @@
   color: var(--color-success);
 }
 .project-stage-items {
+  flex: 1;
   padding: 5px;
   min-height: 190px;
 }
@@ -867,8 +883,8 @@
   text-align: center;
 }
 .project-stage-column.is-drop-target {
-  background: var(--color-bamboo-mist);
-  border-color: var(--color-bamboo);
+  background: color-mix(in srgb, var(--stage-color) 12%, var(--color-cloud));
+  border-color: var(--stage-color);
 }
 .project-requirement.is-dragging {
   opacity: 0.35;
@@ -972,6 +988,19 @@
   display: block;
   padding: 4px;
   min-height: 32px;
+  margin-bottom: 5px;
+  border: 1px solid color-mix(in srgb, var(--stage-color) 28%, transparent);
+  border-left: 3px solid var(--stage-color);
+  background: color-mix(in srgb, var(--stage-color) 11%, var(--color-cloud));
+}
+.project-stage-column .project-requirement:hover,
+.project-stage-column .project-requirement:focus-within {
+  background: color-mix(in srgb, var(--stage-color) 18%, var(--color-cloud));
+  border-color: color-mix(in srgb, var(--stage-color) 55%, transparent);
+  border-left-color: var(--stage-color);
+}
+.project-stage-column .project-requirement-handle {
+  color: var(--stage-color);
 }
 .project-stage-column .project-requirement-name {
   min-height: 24px;
@@ -987,12 +1016,13 @@
   padding: 4px 8px;
   box-sizing: border-box;
   pointer-events: none;
-  background: var(--color-cloud);
+  background: color-mix(in srgb, var(--stage-color) 18%, var(--color-cloud));
   color: var(--color-ink);
   font-family: var(--font-body);
   font-size: 12px;
   line-height: 18px;
   border-radius: 5px;
+  border-left: 3px solid var(--stage-color);
   box-shadow:
     0 5px 18px #0002,
     0 0 0 1px var(--color-paper-deep);
@@ -1000,7 +1030,7 @@
 }
 .project-requirement-floating svg {
   flex-shrink: 0;
-  color: var(--color-ink-faint);
+  color: var(--stage-color);
 }
 .project-requirement-floating span {
   min-width: 0;
@@ -1009,8 +1039,9 @@
 .project-requirement-placeholder {
   box-sizing: border-box;
   border-radius: 4px;
-  background: var(--color-bamboo-mist);
-  margin: 0;
+  background: color-mix(in srgb, var(--stage-color) 8%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--stage-color) 60%, transparent);
+  margin: 0 0 5px;
   pointer-events: auto;
 }
 .project-requirement-board.is-drag-active,
@@ -1025,4 +1056,94 @@
 .project-stage-column .project-requirement:focus-visible {
   outline: 1px solid var(--color-bamboo);
   outline-offset: -1px;
+}
+
+.project-cycle-tabs .project-archive-tab {
+  margin-left: auto;
+}
+.project-requirement-complete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--color-ink-faint);
+  border-radius: 4px;
+}
+.project-requirement-complete:hover:not(:disabled),
+.project-requirement-complete:focus-visible {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+}
+.project-archive-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--color-ink-faint);
+}
+.project-archive-heading p {
+  margin: 0;
+}
+.project-archive-pagination {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-block: 3px;
+  background: var(--color-cloud);
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+.project-archive-pagination span {
+  padding-inline: 4px;
+}
+.project-archive-pagination button:disabled {
+  opacity: 0.45;
+}
+.project-archive-heading button,
+.project-archive-pagination button,
+.project-archived-task button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  line-height: 20px;
+  border-radius: 5px;
+  color: var(--color-bamboo);
+  flex-shrink: 0;
+}
+.project-archive-heading button:hover:not(:disabled),
+.project-archive-pagination button:hover:not(:disabled),
+.project-archived-task button:hover:not(:disabled) {
+  background: var(--color-bamboo-mist);
+}
+.project-archived-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--color-paper-deep);
+  font-size: 13px;
+  line-height: 20px;
+}
+.project-archived-task > svg {
+  flex-shrink: 0;
+  color: var(--color-success);
+}
+.project-archived-task > span {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

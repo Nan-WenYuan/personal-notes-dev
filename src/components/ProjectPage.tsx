@@ -11,6 +11,8 @@ import {
   CalendarDays,
   Code2,
   CircleCheck,
+  Archive,
+  RotateCcw,
   GripVertical,
   X,
 } from "lucide-react";
@@ -29,8 +31,8 @@ const stages = [
   { value: "backlog", label: "待梳理", color: "var(--color-ink-soft)", icon: Circle },
   { value: "planned", label: "排期中", color: "var(--color-warning)", icon: CalendarDays },
   { value: "developing", label: "开发中", color: "var(--color-info)", icon: Code2 },
-  { value: "done", label: "已完成", color: "var(--color-success)", icon: CircleCheck },
 ] as const;
+const ARCHIVE_PAGE_SIZE = 100;
 export function ProjectPage({
   project,
   onBack,
@@ -45,11 +47,21 @@ export function ProjectPage({
   initialTab?: string;
 }) {
   const [tab, setTab] = useState(initialTab);
+  const [archivePage, setArchivePage] = useState(0);
+  const pageBody = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [tasks, setTasks] = useState<ProjectTask[]>(project.tasks ?? []);
+  const archivedTasks = tasks.filter((task) => requirementStage(task) === "done");
+  const archivePageCount = Math.ceil(archivedTasks.length / ARCHIVE_PAGE_SIZE);
+  const currentArchivePage = Math.min(archivePage, Math.max(0, archivePageCount - 1));
+  const archivePageStart = currentArchivePage * ARCHIVE_PAGE_SIZE;
+  function showArchivePage(page: number) {
+    setArchivePage(page);
+    pageBody.current?.scrollTo({ top: 0 });
+  }
   const tasksRef = useRef(tasks);
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const [deletedTask, setDeletedTask] = useState<{ task: ProjectTask; index: number } | null>(null);
@@ -258,6 +270,11 @@ export function ProjectPage({
     )
       setText("");
   }
+  function archiveTask(id: string) {
+    if (busyRef.current || settling.current) return;
+    setMoveMenu(null);
+    void save(moveRequirement(tasksRef.current, id, "done", null));
+  }
   async function navigate(next: () => void) {
     if (settling.current || !(await saveQueue.current)) return;
     try {
@@ -301,6 +318,16 @@ export function ProjectPage({
               移到{stage.label}
             </button>
           ))}
+          <button
+            role="menuitem"
+            className="project-move-option"
+            disabled={busy}
+            style={{ "--stage-color": "var(--color-success)" } as CSSProperties}
+            onClick={() => archiveTask(moveMenu.id)}
+          >
+            <CircleCheck size={14} />
+            完成并归档
+          </button>
         </div>
       )}
       <nav>
@@ -334,6 +361,21 @@ export function ProjectPage({
         >
           笔记
         </button>
+        <button
+          className="project-archive-tab"
+          disabled={busy}
+          aria-pressed={tab === "archive"}
+          onClick={() =>
+            void navigate(() => {
+              showArchivePage(0);
+              setTab(tab === "archive" ? "tasks" : "archive");
+            })
+          }
+        >
+          <Archive size={14} />
+          已归档
+          <span className="project-tab-count">{archivedTasks.length}</span>
+        </button>
       </div>
       {error && (
         <p className="project-inline-error" role="alert">
@@ -343,9 +385,72 @@ export function ProjectPage({
           </button>
         </p>
       )}
-      <div className={`project-page-body ${tab !== "notes" ? "is-management" : ""}`}>
+      <div ref={pageBody} className={`project-page-body ${tab !== "notes" ? "is-management" : ""}`}>
         {tab === "notes" ? (
           <ProjectNotes project={project} onOpen={onOpenNote} onChanged={onChanged} />
+        ) : tab === "archive" ? (
+          <section className="project-task-archive" aria-label="已归档任务">
+            <div className="project-archive-heading">
+              <p>已完成的任务保留在这里，恢复后回到待梳理。</p>
+              <button disabled={busy} onClick={() => void navigate(() => setTab("tasks"))}>
+                <ArrowLeft size={14} />
+                返回看板
+              </button>
+            </div>
+            {archivePageCount > 1 && (
+              <nav className="project-archive-pagination" aria-label="归档分页">
+                <button
+                  disabled={busy || currentArchivePage === 0}
+                  onClick={() => showArchivePage(0)}
+                >
+                  首页
+                </button>
+                <button
+                  disabled={busy || currentArchivePage === 0}
+                  onClick={() => showArchivePage(currentArchivePage - 1)}
+                >
+                  上一页
+                </button>
+                <span aria-live="polite">
+                  第 {currentArchivePage + 1} / {archivePageCount} 页
+                </span>
+                <button
+                  disabled={busy || currentArchivePage >= archivePageCount - 1}
+                  onClick={() => showArchivePage(currentArchivePage + 1)}
+                >
+                  下一页
+                </button>
+                <button
+                  disabled={busy || currentArchivePage >= archivePageCount - 1}
+                  onClick={() => showArchivePage(archivePageCount - 1)}
+                >
+                  末页
+                </button>
+              </nav>
+            )}
+            {archivedTasks
+              .slice(archivePageStart, archivePageStart + ARCHIVE_PAGE_SIZE)
+              .map((task) => (
+                <div className="project-archived-task" key={task.id}>
+                  <CircleCheck size={16} aria-hidden="true" />
+                  <span>{task.text}</span>
+                  <button
+                    disabled={busy}
+                    aria-label={`恢复任务 ${task.text}`}
+                    title="恢复到待梳理"
+                    onClick={() => {
+                      if (archivePageStart === archivedTasks.length - 1 && currentArchivePage > 0)
+                        showArchivePage(currentArchivePage - 1);
+                      void save(moveRequirement(tasksRef.current, task.id, "backlog", null));
+                    }}
+                  >
+                    <RotateCcw size={14} />
+                    恢复
+                  </button>
+                </div>
+              ))}
+            {archivedTasks.length === 0 && <p className="project-empty">暂无已归档任务</p>}
+          </section>
         ) : (
           <>
             <form
@@ -371,7 +476,9 @@ export function ProjectPage({
                 <Plus size={16} />
               </button>
             </form>
-            <p className="project-board-hint">拖动左侧手柄调整位置，点击文字或空白处编辑。</p>
+            <p className="project-board-hint">
+              拖动左侧手柄调整位置，点击文字或空白处编辑；点击勾选按钮完成并归档。
+            </p>
             {deletedTask && (
               <p className="project-task-undo" role="status">
                 已删除需求
@@ -406,6 +513,7 @@ export function ProjectPage({
                   key={column.value}
                   data-requirement-stage={column.value}
                   className="project-stage-column"
+                  style={{ "--stage-color": column.color } as CSSProperties}
                   aria-label={column.label}
                 >
                   <header>
@@ -516,6 +624,15 @@ export function ProjectPage({
                                 }}
                               />
                               <button
+                                className="project-requirement-complete"
+                                disabled={busy}
+                                title="完成并归档"
+                                aria-label={`完成并归档 ${task.text}`}
+                                onClick={() => archiveTask(task.id)}
+                              >
+                                <CircleCheck size={14} />
+                              </button>
+                              <button
                                 className="project-requirement-delete"
                                 title="删除需求"
                                 aria-label={`删除需求 ${task.text}`}
@@ -547,11 +664,17 @@ export function ProjectPage({
                 <div
                   ref={ghostRef}
                   className="project-requirement-floating"
-                  style={{
-                    width: dragView.width,
-                    minHeight: dragView.height,
-                    transform: `translate3d(${dragView.x}px,${dragView.y}px,0)`,
-                  }}
+                  style={
+                    {
+                      "--stage-color": stages.find(
+                        (stage) =>
+                          stage.value === (dragView.stage ?? dragRef.current?.stage ?? "backlog"),
+                      )?.color,
+                      width: dragView.width,
+                      minHeight: dragView.height,
+                      transform: `translate3d(${dragView.x}px,${dragView.y}px,0)`,
+                    } as CSSProperties
+                  }
                   aria-hidden="true"
                 >
                   <GripVertical size={14} />

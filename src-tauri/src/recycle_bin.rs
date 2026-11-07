@@ -6,6 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
     sync::{Mutex, MutexGuard},
@@ -216,12 +217,16 @@ pub fn save_with_history<T: Serialize>(data: &Path, file: &str, next: &T) -> Res
     let before = records(file, &old);
     let after = records(file, &next);
     let mut created = vec![];
-    let added: Vec<_> = after
-        .iter()
-        .filter(|(_, _, _, r)| !before.iter().any(|(_, _, _, old)| same_record(r, old)))
-        .collect();
+    let added: Vec<_> = {
+        let before_keys: HashSet<_> = before.iter().map(|(_, _, _, r)| record_key(r)).collect();
+        after
+            .iter()
+            .filter(|(_, _, _, r)| !before_keys.contains(&record_key(r)))
+            .collect()
+    };
+    let after_keys: HashSet<_> = after.iter().map(|(_, _, _, r)| record_key(r)).collect();
     for (kind, name, origin, record) in before {
-        if after.iter().any(|(_, _, _, r)| same_record(r, &record)) {
+        if after_keys.contains(&record_key(&record)) {
             continue;
         }
         let mut item = entry(kind, name, origin);
@@ -250,7 +255,7 @@ pub fn save_with_history<T: Serialize>(data: &Path, file: &str, next: &T) -> Res
         if let Some(record) = &item.record {
             if added
                 .iter()
-                .any(|(_, _, _, r)| same_record(r, record) && r.value == record.value)
+                .any(|(_, _, _, r)| record_key(r) == record_key(record) && r.value == record.value)
             {
                 fs::remove_dir_all(entry_dir(data, &item.id)?)?;
             }
@@ -258,8 +263,13 @@ pub fn save_with_history<T: Serialize>(data: &Path, file: &str, next: &T) -> Res
     }
     Ok(())
 }
-fn same_record(a: &Record, b: &Record) -> bool {
-    a.file == b.file && a.parent == b.parent && a.field == b.field && a.value["id"] == b.value["id"]
+fn record_key(record: &Record) -> (&str, Option<&str>, &str, &Value) {
+    (
+        &record.file,
+        record.parent.as_deref(),
+        &record.field,
+        &record.value["id"],
+    )
 }
 fn records(file: &str, document: &Value) -> Vec<(&'static str, String, String, Record)> {
     let mut result = vec![];
@@ -437,6 +447,32 @@ mod tests {
         save_with_history(&data, "四象限.json", &vec![b.clone()]).unwrap();
         assert_eq!(list(&data).unwrap().len(), 1);
         save_with_history(&data, "四象限.json", &vec![a, b]).unwrap();
+        assert!(list(&data).unwrap().is_empty());
+        fs::remove_dir_all(data).unwrap();
+    }
+    #[test]
+    fn changing_archive_stage_keeps_same_id_tasks_in_separate_projects() {
+        let data = sandbox();
+        let archived = json!({"id":"shared","text":"已归档任务","stage":"done","completed":true});
+        let other =
+            json!({"id":"shared","text":"另一项目的任务","stage":"planned","completed":false});
+        let mut projects = json!([
+            {"id":"a","tasks":[archived]},
+            {"id":"b","tasks":[other.clone()]}
+        ]);
+        save_with_history(&data, "项目.json", &projects).unwrap();
+        projects[0]["tasks"][0]["stage"] = json!("backlog");
+        projects[0]["tasks"][0]["completed"] = json!(false);
+        save_with_history(&data, "项目.json", &projects).unwrap();
+        assert!(list(&data).unwrap().is_empty());
+
+        projects[1]["tasks"] = json!([]);
+        save_with_history(&data, "项目.json", &projects).unwrap();
+        let deleted = list(&data).unwrap();
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0].record.as_ref().unwrap().value, other);
+        projects[1]["tasks"] = json!([other]);
+        save_with_history(&data, "项目.json", &projects).unwrap();
         assert!(list(&data).unwrap().is_empty());
         fs::remove_dir_all(data).unwrap();
     }
